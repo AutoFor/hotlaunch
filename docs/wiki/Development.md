@@ -30,7 +30,7 @@ dotnet publish src/Hotlaunch/Hotlaunch.csproj \
 │                                                      │
 │  LeaderSequenceTracker  純粋ロジック、直接テスト        │
 │  AppLauncher            インターフェース経由でモック     │
-│  ConfigManager          ★ テストがない（今後追加候補）   │
+│  ConfigManager          インスタンス化・IConfigManager化済み │
 └──────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────┐
 │  テスト不可ゾーン（Win32 / WinForms）                  │
@@ -46,7 +46,7 @@ Win32 層は **インターフェースで抽象化**することでテスト可
 
 ### 現在のテスト一覧
 
-#### `AppLauncherTests`（4テスト）
+#### `AppLauncherTests`（5テスト）
 
 | テスト名 | 検証内容 |
 |---------|---------|
@@ -54,8 +54,9 @@ Win32 層は **インターフェースで抽象化**することでテスト可
 | 最小化されているとき_復元してフォーカスする | `IWindowFocuser.Focus(restore: true)` が呼ばれる |
 | 未起動のとき_新規起動する | `IProcessStarter.Start()` が呼ばれる |
 | ProcessName未指定のとき_AppPathのファイル名を使う | `IProcessFinder.FindByName("wezterm-gui")` が呼ばれる |
+| Args付きエントリで未起動のとき_ArgsをStartに渡す | `Start(path, "--new-window")` が呼ばれる |
 
-#### `LeaderSequenceTrackerTests`（6テスト）
+#### `LeaderSequenceTrackerTests`（10テスト）
 
 | テスト名 | 検証内容 |
 |---------|---------|
@@ -65,15 +66,22 @@ Win32 層は **インターフェースで抽象化**することでテスト可
 | リーダーなしにWを押してもイベントは発火しない | Idle 状態では発火しない |
 | タイムアウト後にWを押してもイベントが発火しない | タイムアウト後は Idle に戻る |
 | タイムアウト後は再びリーダーモードに入れる | タイムアウト後に再シーケンス可能 |
+| 待機中にModifierキーを押しても状態が維持される | Shift/Ctrl/Win を押しても待機継続 |
+| リーダーキー連打でタイマーがリセットされる | 連打後のW でマッチする |
+| ダブルプレス設定で1回だけ押してもイベントは発火しない | `count=2` で1回押しはシーケンス移行しない |
+| ダブルプレス設定で2回押すとシーケンス待機になる | `count=2` で2回押し後にW でマッチ |
 
-### テストカバレッジの不足箇所
+#### `ConfigManagerTests`（3テスト）
 
-| 対象 | 不足しているテストケース |
-|------|------------------------|
-| `LeaderSequenceTracker` | Modifier キー（Shift/Ctrl/Win）を待機中に押しても状態維持 |
-| `LeaderSequenceTracker` | リーダーキーを連打したとき（タイマーリセット） |
-| `AppLauncher` | `Args` が空文字で `Start()` に渡る |
-| `ConfigManager` | デフォルト設定の生成・JSONラウンドトリップ |
+| テスト名 | 検証内容 |
+|---------|---------|
+| 設定ファイルが存在しないときデフォルト設定を返す | F12 + W→WezTerm のデフォルトが返る |
+| 保存した設定を読み込むとラウンドトリップできる | Save → Load で内容が一致する |
+| 不正なJSONのときデフォルト設定にフォールバックする | 壊れた JSON でもクラッシュしない |
+
+### テストカバレッジ
+
+現在 **18テスト**（全てグリーン）。主要なビジネスロジックはカバー済み。
 
 ---
 
@@ -99,13 +107,13 @@ Win32 層は **インターフェースで抽象化**することでテスト可
 | `ConfigManager` にテストを追加 | ファイルI/O処理は変更時に壊れやすい |
 | `LeaderSequenceTracker` の Modifier キーテスト追加 | 今後キー追加時の回帰を防ぐ |
 
-#### 優先度 中：コードの明確化
+#### 優先度 中：コードの明確化（完了済み）
 
-| タスク | 内容 |
-|-------|------|
-| `TrayApp` の組み立て責務を分離 | DI コンテナや Factory メソッドへ |
-| `Win32WindowFocuser` の `AttachThreadInput` ロジックをメソッド分割 | 可読性向上 |
-| `ConfigManager` を `IConfigManager` インターフェース化 | 将来のテスト容易性 |
+| タスク | 内容 | 状態 |
+|-------|------|------|
+| `TrayApp` の組み立て責務を分離 | `HotlaunchFactory` に切り出し済み | ✅ |
+| `Win32WindowFocuser` の `AttachThreadInput` ロジックをメソッド分割 | `WithAttachedInput()` として切り出し済み | ✅ |
+| `ConfigManager` を `IConfigManager` インターフェース化 | インスタンスクラス + インターフェース化済み | ✅ |
 
 #### 優先度 低：将来の拡張に備える
 
