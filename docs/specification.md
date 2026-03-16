@@ -27,14 +27,13 @@ Windows 常駐型のグローバルホットキーランチャー。
 - [ ] グローバルホットキーの登録・解除
 - [ ] ホットキーに対してアプリのパスを紐づけ
 - [ ] ホットキー押下でアプリ起動
+- [ ] アプリが既に起動中の場合はウィンドウをフォアグラウンドに持ってくる（最小化時は復元）
 - [ ] 設定の JSON 読み込み・保存
 - [ ] トレイアイコン右クリックメニュー（終了 / 設定を開く）
 
 ### 将来的な拡張（やるかも）
 
 - [ ] GUI での設定編集画面
-- [ ] アプリが既に起動中の場合はウィンドウをフォアグラウンドに持ってくる
-- [ ] 起動引数の指定
 - [ ] 複数プロファイル切り替え
 - [ ] Windows スタートアップ登録
 
@@ -49,19 +48,31 @@ Windows 常駐型のグローバルホットキーランチャー。
   "hotkeys": [
     {
       "modifiers": ["Ctrl", "Alt"],
-      "key": "B",
-      "appPath": "C:\\Users\\you\\AppData\\Local\\Programs\\cursor\\Cursor.exe",
-      "args": ""
+      "key": "T",
+      "appPath": "C:\\Program Files\\WezTerm\\wezterm-gui.exe",
+      "args": "",
+      "processName": "wezterm-gui"
     },
     {
       "modifiers": ["Ctrl", "Alt"],
-      "key": "T",
-      "appPath": "wt.exe",
-      "args": ""
+      "key": "B",
+      "appPath": "C:\\Users\\you\\AppData\\Local\\Programs\\cursor\\Cursor.exe",
+      "args": "",
+      "processName": "cursor"
     }
   ]
 }
 ```
+
+### フィールド説明
+
+| フィールド | 必須 | 説明 |
+|-----------|------|------|
+| `modifiers` | ✓ | 修飾キーの配列 |
+| `key` | ✓ | メインキー（`Keys` 列挙体の名前） |
+| `appPath` | ✓ | 起動する実行ファイルのパス |
+| `args` | - | 起動引数（省略可） |
+| `processName` | - | フォーカス判定に使うプロセス名。省略時は `appPath` のファイル名（拡張子なし）を使用 |
 
 ### modifiers に指定できる値
 
