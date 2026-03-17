@@ -157,7 +157,7 @@ AppLauncher
     └── IProcessStarter → Win32ProcessStarter （プロセス起動）
 
 ConfigManager → AppConfig（設定読み込み）
-TrayApp（WinForms）→ 全コンポーネントの組み立て・ライフサイクル管理
+TrayApp（WPF + H.NotifyIcon.Wpf）→ 全コンポーネントの組み立て・ライフサイクル管理
 ```
 
 ### テスト戦略
