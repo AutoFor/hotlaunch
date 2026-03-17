@@ -1,5 +1,6 @@
+using System.IO;
 using System.Runtime.InteropServices;
-using System.Windows.Forms;
+using System.Windows;
 using Serilog;
 using Serilog.Events;
 
@@ -38,8 +39,9 @@ static class Program
         try
         {
             Log.Information("hotlaunch 起動");
-            ApplicationConfiguration.Initialize();
-            Application.Run(new TrayApp());
+            var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            using var trayApp = new TrayApp();
+            app.Run();
         }
         catch (Exception ex)
         {

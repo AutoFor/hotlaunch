@@ -1,16 +1,19 @@
+using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
-using System.Windows.Forms;
+using System.Windows;
+using System.Windows.Controls;
+using H.NotifyIcon;
 using Hotlaunch.Core;
 using Hotlaunch.Core.Config;
 
 namespace Hotlaunch;
 
-sealed class TrayApp : Form
+sealed class TrayApp : IDisposable
 {
     [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr handle);
 
-    private readonly NotifyIcon _trayIcon;
+    private readonly TaskbarIcon _trayIcon;
     private readonly KeyboardHook _hook;
     private readonly LeaderSequenceTracker _tracker;
     private readonly Icon _normalIcon;
@@ -18,31 +21,26 @@ sealed class TrayApp : Form
 
     public TrayApp()
     {
-        // フォームを完全に非表示にする
-        ShowInTaskbar = false;
-        WindowState = FormWindowState.Minimized;
-        FormBorderStyle = FormBorderStyle.None;
-        Opacity = 0;
-
-        // BeginInvoke のためにウィンドウハンドルを事前生成
-        _ = Handle;
-
         _normalIcon = CreateDotIcon(Color.FromArgb(100, 100, 100)); // グレー
         _activeIcon = CreateDotIcon(Color.FromArgb(0, 200, 80));    // グリーン
 
         var config = ConfigManager.Default.Load();
         (_tracker, _, _hook) = HotlaunchFactory.Create(config);
 
-        _trayIcon = new NotifyIcon
+        var contextMenu = new ContextMenu();
+        var exitItem = new MenuItem { Header = "終了" };
+        exitItem.Click += (_, _) => Application.Current.Shutdown();
+        contextMenu.Items.Add(exitItem);
+
+        _trayIcon = new TaskbarIcon
         {
             Icon = _normalIcon,
-            Visible = true,
-            Text = "hotlaunch",
-            ContextMenuStrip = BuildContextMenu(),
+            ToolTipText = "hotlaunch",
+            ContextMenu = contextMenu,
         };
 
-        _tracker.LeaderActivated   += () => BeginInvoke(() => _trayIcon.Icon = _activeIcon);
-        _tracker.LeaderDeactivated += () => BeginInvoke(() => _trayIcon.Icon = _normalIcon);
+        _tracker.LeaderActivated   += () => _trayIcon.Dispatcher.Invoke(() => _trayIcon.Icon = _activeIcon);
+        _tracker.LeaderDeactivated += () => _trayIcon.Dispatcher.Invoke(() => _trayIcon.Icon = _normalIcon);
     }
 
     private static Icon CreateDotIcon(Color color)
@@ -59,26 +57,12 @@ sealed class TrayApp : Form
         return icon;
     }
 
-    // フォームを表示しない
-    protected override void SetVisibleCore(bool value) => base.SetVisibleCore(false);
-
-    private ContextMenuStrip BuildContextMenu()
+    public void Dispose()
     {
-        var menu = new ContextMenuStrip();
-        menu.Items.Add("終了", null, (_, _) => Application.Exit());
-        return menu;
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            _hook.Dispose();
-            _tracker.Dispose();
-            _trayIcon.Dispose();
-            _normalIcon.Dispose();
-            _activeIcon.Dispose();
-        }
-        base.Dispose(disposing);
+        _hook.Dispose();
+        _tracker.Dispose();
+        _trayIcon.Dispose();
+        _normalIcon.Dispose();
+        _activeIcon.Dispose();
     }
 }
