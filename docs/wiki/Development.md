@@ -33,12 +33,12 @@ dotnet publish src/Hotlaunch/Hotlaunch.csproj \
 │  ConfigManager          インスタンス化・IConfigManager化済み │
 └──────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────┐
-│  テスト不可ゾーン（Win32 / WinForms）                  │
+│  テスト不可ゾーン（Win32 / WPF）                       │
 │                                                      │
 │  Win32WindowFocuser  AttachThreadInput など           │
 │  Win32ProcessFinder  Process.GetProcessesByName      │
 │  KeyboardHook        WH_KEYBOARD_LL                  │
-│  TrayApp             WinForms                        │
+│  TrayApp             WPF + H.NotifyIcon.Wpf          │
 └──────────────────────────────────────────────────────┘
 ```
 
