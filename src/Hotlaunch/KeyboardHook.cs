@@ -35,6 +35,9 @@ sealed class KeyboardHook : IDisposable
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint n, INPUT[] inputs, int size);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct MSG
     {
@@ -46,20 +49,47 @@ sealed class KeyboardHook : IDisposable
         public int ptX, ptY;
     }
 
-    private const int WH_KEYBOARD_LL = 13;
-    private const int WM_KEYDOWN     = 0x0100;
-    private const int WM_SYSKEYDOWN  = 0x0104;
-    private const uint WM_QUIT       = 0x0012;
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KBDLLHOOKSTRUCT
+    {
+        public uint vkCode, scanCode, flags, time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 40)]
+    private struct INPUT
+    {
+        [FieldOffset(0)] public int Type;      // INPUT_KEYBOARD = 1
+        [FieldOffset(8)] public KEYBDINPUT ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
+    {
+        public ushort wVk, wScan;
+        public uint dwFlags, time;            // KEYEVENTF_KEYUP = 0x0002
+        public IntPtr dwExtraInfo;
+    }
+
+    private const int WH_KEYBOARD_LL  = 13;
+    private const int WM_KEYDOWN      = 0x0100;
+    private const int WM_SYSKEYDOWN   = 0x0104;
+    private const int WM_KEYUP        = 0x0101;
+    private const int WM_SYSKEYUP     = 0x0105;
+    private const uint WM_QUIT        = 0x0012;
+    private const uint LLKHF_INJECTED = 0x10;
 
     private readonly LowLevelKeyboardProc _proc; // GC されないよう保持
     private readonly LeaderSequenceTracker _tracker;
+    private readonly ModifierRemapper? _remapper;
     private IntPtr _hookId;
     private uint _hookThreadId;
 
-    public KeyboardHook(LeaderSequenceTracker tracker)
+    public KeyboardHook(LeaderSequenceTracker tracker, ModifierRemapper? remapper = null)
     {
-        _tracker = tracker;
-        _proc = HookCallback;
+        _tracker  = tracker;
+        _remapper = remapper;
+        _proc     = HookCallback;
 
         var ready = new ManualResetEventSlim(false);
 
@@ -89,18 +119,48 @@ sealed class KeyboardHook : IDisposable
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0)
+        if (nCode < 0) return CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+        var kbs = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+        int vk          = (int)kbs.vkCode;
+        bool isInjected = (kbs.flags & LLKHF_INJECTED) != 0;
+        int msg         = (int)wParam;
+        bool isDown     = msg == WM_KEYDOWN  || msg == WM_SYSKEYDOWN;
+        bool isUp       = msg == WM_KEYUP    || msg == WM_SYSKEYUP;
+
+        Log.Debug("フック受信: VK=0x{VkHex} isDown={IsDown} isUp={IsUp} isInjected={IsInjected}",
+            vk.ToString("X2"), isDown, isUp, isInjected);
+
+        if (isInjected) return CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+        if (_remapper != null)
         {
-            int msg = (int)wParam;
-            if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
-            {
-                int vkCode = Marshal.ReadInt32(lParam);
-                Log.Debug("キー押下: VK={VkCode} (0x{VkHex})", vkCode, vkCode.ToString("X2"));
-                if (_tracker.OnKeyDown(vkCode))
-                    return (IntPtr)1;
-            }
+            var result = isDown ? _remapper.OnKeyDown(vk)
+                       : isUp   ? _remapper.OnKeyUp(vk)
+                       : default;
+            Log.Debug("リマッパー結果: Block={Block} InjectCount={InjectCount}", result.Block, result.Inject.Count);
+            if (result.Inject.Count > 0) SendKeys(result.Inject);
+            if (result.Block) return (IntPtr)1;
         }
+
+        if (isDown)
+        {
+            Log.Debug("キー押下: VK={VkCode} (0x{VkHex})", vk, vk.ToString("X2"));
+            if (_tracker.OnKeyDown(vk))
+                return (IntPtr)1;
+        }
+
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
+    }
+
+    private void SendKeys(IReadOnlyList<(int Vk, bool KeyUp)> keys)
+    {
+        var inputs = new INPUT[keys.Count];
+        for (int i = 0; i < keys.Count; i++)
+            inputs[i] = new INPUT { Type = 1, ki = new KEYBDINPUT { wVk = (ushort)keys[i].Vk, dwFlags = keys[i].KeyUp ? 0x0002u : 0u } };
+        uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        if (sent != (uint)inputs.Length)
+            Log.Warning("SendInput 失敗: sent={Sent}/{Total} err={Err}", sent, inputs.Length, Marshal.GetLastWin32Error());
     }
 
     public void Dispose()

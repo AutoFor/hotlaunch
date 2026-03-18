@@ -15,6 +15,9 @@ static class Program
     static void Main(string[] args)
     {
         AllocConsole();
+        // コンソールウィンドウにフォーカスがある状態で Ctrl+C が届いても
+        // hotlaunch が終了しないようにする（モディファイアリマップの Ctrl 注入対策）
+        Console.CancelKeyPress += (_, e) => e.Cancel = true;
 
         // --verbose / -v で全キー押下ログを出す。デフォルトは INF のみ。
         bool verbose = args.Contains("--verbose") || args.Contains("-v");

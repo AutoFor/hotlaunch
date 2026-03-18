@@ -13,17 +13,15 @@ sealed class TrayApp : IDisposable
 {
     [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr handle);
 
+    private static readonly Color NormalColor = Color.FromArgb(100, 100, 100);
+    private static readonly Color ActiveColor = Color.FromArgb(0, 200, 80);
+
     private readonly TaskbarIcon _trayIcon;
     private readonly KeyboardHook _hook;
     private readonly LeaderSequenceTracker _tracker;
-    private readonly Icon _normalIcon;
-    private readonly Icon _activeIcon;
 
     public TrayApp()
     {
-        _normalIcon = CreateDotIcon(Color.FromArgb(100, 100, 100)); // グレー
-        _activeIcon = CreateDotIcon(Color.FromArgb(0, 200, 80));    // グリーン
-
         var config = ConfigManager.Default.Load();
         (_tracker, _, _hook) = HotlaunchFactory.Create(config);
 
@@ -34,13 +32,15 @@ sealed class TrayApp : IDisposable
 
         _trayIcon = new TaskbarIcon
         {
-            Icon = _normalIcon,
+            Icon = CreateDotIcon(NormalColor),
             ToolTipText = "hotlaunch",
             ContextMenu = contextMenu,
         };
 
-        _tracker.LeaderActivated   += () => _trayIcon.Dispatcher.Invoke(() => _trayIcon.Icon = _activeIcon);
-        _tracker.LeaderDeactivated += () => _trayIcon.Dispatcher.Invoke(() => _trayIcon.Icon = _normalIcon);
+        // H.NotifyIcon は Icon を差し替えるたびに古い Icon を Dispose() する。
+        // キャッシュすると 2 回目以降に ObjectDisposedException が発生するため、毎回新規生成する。
+        _tracker.LeaderActivated   += () => _trayIcon.Dispatcher.Invoke(() => _trayIcon.Icon = CreateDotIcon(ActiveColor));
+        _tracker.LeaderDeactivated += () => _trayIcon.Dispatcher.Invoke(() => _trayIcon.Icon = CreateDotIcon(NormalColor));
     }
 
     private static Icon CreateDotIcon(Color color)
@@ -61,8 +61,6 @@ sealed class TrayApp : IDisposable
     {
         _hook.Dispose();
         _tracker.Dispose();
-        _trayIcon.Dispose();
-        _normalIcon.Dispose();
-        _activeIcon.Dispose();
+        _trayIcon.Dispose(); // 現在の Icon も H.NotifyIcon が Dispose する
     }
 }
