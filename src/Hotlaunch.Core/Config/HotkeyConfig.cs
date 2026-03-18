@@ -15,8 +15,15 @@ public class HotkeyEntry
     public string? ProcessName { get; set; }
 }
 
+public class ModifierRemapConfig
+{
+    public string Source { get; set; } = "";
+    public string Target { get; set; } = "";
+}
+
 public class AppConfig
 {
     public LeaderConfig Leader { get; set; } = new();
+    public ModifierRemapConfig[] ModifierRemaps { get; set; } = [];
     public HotkeyEntry[] Hotkeys { get; set; } = [];
 }
