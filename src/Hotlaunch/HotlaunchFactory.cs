@@ -64,7 +64,11 @@ static class HotlaunchFactory
 
         tracker.SequenceMatched += entry => launcher.Launch(entry);
 
-        var hook = new KeyboardHook(tracker);
+        ModifierRemapper? remapper = config.ModifierRemaps.Length > 0
+            ? new ModifierRemapper(config.ModifierRemaps.Select(r => (ParseVk(r.Source), ParseVk(r.Target))))
+            : null;
+
+        var hook = new KeyboardHook(tracker, remapper);
 
         return (tracker, launcher, hook);
     }

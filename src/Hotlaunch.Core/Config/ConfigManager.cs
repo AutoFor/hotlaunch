@@ -41,6 +41,10 @@ public class ConfigManager(string configPath) : IConfigManager
         var config = new AppConfig
         {
             Leader = new LeaderConfig { Key = "F12", TimeoutMs = 2000, Count = 1 },
+            ModifierRemaps =
+            [
+                new ModifierRemapConfig { Source = "Muhenkan", Target = "Ctrl" },
+            ],
             Hotkeys =
             [
                 new HotkeyEntry
