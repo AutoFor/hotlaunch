@@ -36,6 +36,7 @@ sealed class TrayApp : IDisposable
             ToolTipText = "hotlaunch",
             ContextMenu = contextMenu,
         };
+        _trayIcon.ForceCreate();
 
         // H.NotifyIcon は Icon を差し替えるたびに古い Icon を Dispose() する。
         // キャッシュすると 2 回目以降に ObjectDisposedException が発生するため、毎回新規生成する。
