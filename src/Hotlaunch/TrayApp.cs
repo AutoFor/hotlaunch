@@ -26,6 +26,9 @@ sealed class TrayApp : IDisposable
         (_tracker, _, _hook) = HotlaunchFactory.Create(config);
 
         var contextMenu = new ContextMenu();
+        var resetItem = new MenuItem { Header = "リマッパーリセット (無変換+C が効かない時)" };
+        resetItem.Click += (_, _) => _hook.ResetRemapper();
+        contextMenu.Items.Add(resetItem);
         var exitItem = new MenuItem { Header = "終了" };
         exitItem.Click += (_, _) => Application.Current.Shutdown();
         contextMenu.Items.Add(exitItem);

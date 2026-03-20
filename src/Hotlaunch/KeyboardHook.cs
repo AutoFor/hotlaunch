@@ -84,6 +84,8 @@ sealed class KeyboardHook : IDisposable
     private readonly ModifierRemapper? _remapper;
     private IntPtr _hookId;
     private uint _hookThreadId;
+    private long _lastEventTickMs;
+    private System.Threading.Timer? _healthTimer;
 
     public KeyboardHook(LeaderSequenceTracker tracker, ModifierRemapper? remapper = null)
     {
@@ -115,12 +117,28 @@ sealed class KeyboardHook : IDisposable
         thread.Start();
 
         ready.Wait(); // フック登録完了まで待つ
+
+        if (_hookId == IntPtr.Zero)
+            Log.Warning("キーボードフック登録失敗！ hotlaunch はキーを受信できません");
+
+        _lastEventTickMs = Environment.TickCount64;
+        // 30秒ごとにフック状態を確認
+        _healthTimer = new System.Threading.Timer(_ =>
+        {
+            var idleSec = (Environment.TickCount64 - Interlocked.Read(ref _lastEventTickMs)) / 1000;
+            if (_remapper != null && _remapper.HasPendingState)
+                Log.Warning("リマッパー: 状態が残留しています ({IdleSec}秒間イベントなし) {State}",
+                    idleSec, _remapper.StateDescription);
+            else
+                Log.Debug("フック稼働確認: hookId={HookId}, {IdleSec}秒間イベントなし", _hookId, idleSec);
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode < 0) return CallNextHookEx(_hookId, nCode, wParam, lParam);
 
+        Interlocked.Exchange(ref _lastEventTickMs, Environment.TickCount64);
         var kbs = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
         int vk          = (int)kbs.vkCode;
         bool isInjected = (kbs.flags & LLKHF_INJECTED) != 0;
@@ -163,8 +181,17 @@ sealed class KeyboardHook : IDisposable
             Log.Warning("SendInput 失敗: sent={Sent}/{Total} err={Err}", sent, inputs.Length, Marshal.GetLastWin32Error());
     }
 
+    /// <summary>リマッパーの状態をリセットする。無変換+C が効かなくなったときにトレイから呼ぶ。</summary>
+    public void ResetRemapper()
+    {
+        _remapper?.Reset();
+        if (_remapper == null)
+            Log.Information("リマッパーが無効のためリセット不要");
+    }
+
     public void Dispose()
     {
+        _healthTimer?.Dispose();
         UnhookWindowsHookEx(_hookId);
         if (_hookThreadId != 0)
             PostThreadMessage(_hookThreadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
