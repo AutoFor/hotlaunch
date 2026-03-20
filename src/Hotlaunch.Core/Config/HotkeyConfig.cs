@@ -3,6 +3,7 @@ namespace Hotlaunch.Core.Config;
 public class LeaderConfig
 {
     public string Key { get; set; } = "Alt";
+    public string? ChordKey { get; set; }
     public int TimeoutMs { get; set; } = 2000;
     public int Count { get; set; } = 1;
 }
