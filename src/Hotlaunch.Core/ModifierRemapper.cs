@@ -15,6 +15,7 @@ public sealed class ModifierRemapper
     private readonly HashSet<int> _usedAsChordSource = new();
     private readonly HashSet<int> _heldNonSourceKeys = new();
     private readonly HashSet<int> _heldChordTriggers = new();
+    private readonly HashSet<int> _pendingTriggers = new();
 
     public ModifierRemapper(
         IEnumerable<(int sourceVk, int targetVk)> rules,
@@ -27,7 +28,7 @@ public sealed class ModifierRemapper
     }
 
     public bool HasPendingState =>
-        _heldSources.Count > 0 || _heldNonSourceKeys.Count > 0 || _heldChordTriggers.Count > 0;
+        _heldSources.Count > 0 || _heldNonSourceKeys.Count > 0 || _heldChordTriggers.Count > 0 || _pendingTriggers.Count > 0;
 
     public string StateDescription =>
         $"heldSources=[{string.Join(",", _heldSources.Select(v => $"0x{v:X2}"))}] " +
@@ -42,6 +43,7 @@ public sealed class ModifierRemapper
         _usedAsChordSource.Clear();
         _heldNonSourceKeys.Clear();
         _heldChordTriggers.Clear();
+        _pendingTriggers.Clear();
         Log.Information("リマッパー: 状態をリセットしました");
     }
 
@@ -59,6 +61,34 @@ public sealed class ModifierRemapper
                 Log.Information("チョード検出: 0x{SrcHex}+0x{TrgHex} → 合成VK 0x{SynHex}",
                     chord.SourceVk.ToString("X2"), vkCode.ToString("X2"), chord.SyntheticVk.ToString("X2"));
                 return new RemapResult(true, [], chord.SyntheticVk);
+            }
+        }
+
+        // 逆順チョード検出（トリガーキーが先に押されていて、今ソースキーが来た）
+        foreach (var chord in _chordRules)
+        {
+            if (chord.SourceVk == vkCode
+                && _pendingTriggers.Contains(chord.TriggerVk))
+            {
+                _pendingTriggers.Remove(chord.TriggerVk);
+                _heldSources.Add(chord.SourceVk);
+                _heldChordTriggers.Add(chord.TriggerVk);
+                _usedAsChordSource.Add(chord.SourceVk);
+                Log.Information("チョード検出(逆順): 0x{TrgHex}→0x{SrcHex} → 合成VK 0x{SynHex}",
+                    chord.TriggerVk.ToString("X2"), vkCode.ToString("X2"), chord.SyntheticVk.ToString("X2"));
+                return new RemapResult(true, [], chord.SyntheticVk);
+            }
+        }
+
+        // トリガーキー押下（ソースキー未保持）→ ペンディング状態へ
+        foreach (var chord in _chordRules)
+        {
+            if (chord.TriggerVk == vkCode
+                && !_heldSources.Contains(chord.SourceVk))
+            {
+                _pendingTriggers.Add(vkCode);
+                Log.Information("チョードトリガー 0x{TrgHex} → ソース待機（ペンディング）", vkCode.ToString("X2"));
+                return new RemapResult(true, []);
             }
         }
 
@@ -88,6 +118,13 @@ public sealed class ModifierRemapper
 
     public RemapResult OnKeyUp(int vkCode)
     {
+        // ペンディングトリガーのリリース（ソースキーが来なかった）→ DOWN+UP を遅延注入
+        if (_pendingTriggers.Remove(vkCode))
+        {
+            Log.Information("リマッパー: ペンディングトリガー 0x{VkHex} リリース → DOWN+UP注入", vkCode.ToString("X2"));
+            return new RemapResult(true, [(vkCode, false), (vkCode, true)]);
+        }
+
         // チョードトリガーリリース → 抑制するだけ
         if (_heldChordTriggers.Remove(vkCode))
         {
