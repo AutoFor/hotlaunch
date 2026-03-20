@@ -56,11 +56,16 @@ static class HotlaunchFactory
     public static (LeaderSequenceTracker Tracker, AppLauncher Launcher, KeyboardHook Hook)
         Create(AppConfig config)
     {
-        var launcher = new AppLauncher(new Win32ProcessFinder(), new Win32WindowFocuser(), new Win32ProcessStarter());
+        var launcher = new AppLauncher(
+            new Win32ProcessFinder(),
+            new Win32WindowFocuser(),
+            new Win32ProcessStarter(),
+            [new SpotifyPostActionHandler()]);
 
         int leaderVk = ParseVk(config.Leader.Key);
         var sequences = config.Hotkeys.Select(h => (ParseVk(h.Key), h));
-        var tracker = new LeaderSequenceTracker(leaderVk, config.Leader.TimeoutMs, sequences, config.Leader.Count);
+        var directKeys = config.DirectHotkeys.Select(h => (ParseVk(h.Key), h));
+        var tracker = new LeaderSequenceTracker(leaderVk, config.Leader.TimeoutMs, sequences, config.Leader.Count, directKeys);
 
         tracker.SequenceMatched += entry => launcher.Launch(entry);
 

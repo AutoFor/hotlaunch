@@ -15,17 +15,19 @@ public sealed class LeaderSequenceTracker : IDisposable
     private readonly int _timeoutMs;
     private readonly int _leaderPressesNeeded;
     private readonly IReadOnlyDictionary<int, HotkeyEntry> _sequences;
+    private readonly IReadOnlyDictionary<int, HotkeyEntry> _directKeys;
 
     public event Action<HotkeyEntry>? SequenceMatched;
     public event Action? LeaderActivated;
     public event Action? LeaderDeactivated;
 
-    public LeaderSequenceTracker(int leaderVk, int timeoutMs, IEnumerable<(int Vk, HotkeyEntry Entry)> sequences, int leaderCount = 1)
+    public LeaderSequenceTracker(int leaderVk, int timeoutMs, IEnumerable<(int Vk, HotkeyEntry Entry)> sequences, int leaderCount = 1, IEnumerable<(int Vk, HotkeyEntry Entry)>? directKeys = null)
     {
         _leaderVk = leaderVk;
         _timeoutMs = timeoutMs;
         _leaderPressesNeeded = Math.Max(1, leaderCount);
         _sequences = sequences.ToDictionary(x => x.Vk, x => x.Entry);
+        _directKeys = directKeys?.ToDictionary(x => x.Vk, x => x.Entry) ?? new Dictionary<int, HotkeyEntry>();
     }
 
     // 待機中に無視するModifierキー（Shift/Ctrl/Alt/Win）
@@ -42,6 +44,14 @@ public sealed class LeaderSequenceTracker : IDisposable
     {
         lock (_lock)
         {
+            // Idle 状態でダイレクトキーが押されたら即マッチ
+            if (_state == State.Idle && _directKeys.TryGetValue(vkCode, out var directEntry))
+            {
+                Log.Information("ダイレクトキー {VkCode} → マッチ ({AppPath})", vkCode, directEntry.AppPath);
+                SequenceMatched?.Invoke(directEntry);
+                return true;
+            }
+
             if ((_state == State.Idle || _state == State.PressingLeader) && vkCode == _leaderVk)
             {
                 _pressCount = _state == State.PressingLeader ? _pressCount + 1 : 1;

@@ -141,6 +141,34 @@ public class LeaderSequenceTrackerTests
     }
 
     [Fact]
+    public void ダイレクトキーはリーダーなしで即マッチする()
+    {
+        var directEntry = new HotkeyEntry { Key = "F12", AppPath = @"C:\Spotify.exe" };
+        var tracker = new LeaderSequenceTracker(AltVk, 2000, [(WVk, new HotkeyEntry())], directKeys: [(0x7B, directEntry)]);
+        HotkeyEntry? fired = null;
+        tracker.SequenceMatched += e => fired = e;
+
+        var suppressed = tracker.OnKeyDown(0x7B); // F12
+
+        Assert.Same(directEntry, fired);
+        Assert.True(suppressed);
+    }
+
+    [Fact]
+    public void ダイレクトキーはリーダー待機中は発火しない()
+    {
+        var directEntry = new HotkeyEntry { Key = "F12", AppPath = @"C:\Spotify.exe" };
+        var tracker = new LeaderSequenceTracker(AltVk, 2000, [(WVk, new HotkeyEntry())], directKeys: [(0x7B, directEntry)]);
+        HotkeyEntry? fired = null;
+        tracker.SequenceMatched += e => fired = e;
+
+        tracker.OnKeyDown(AltVk); // リーダー押下 → WaitingForSequence
+        tracker.OnKeyDown(0x7B);  // F12 → シーケンスキーとして処理、未登録なのでスルー
+
+        Assert.Null(fired);
+    }
+
+    [Fact]
     public void リーダーキー連打でタイマーがリセットされる()
     {
         // タイムアウトを短くして、1回目のAltから待っても2回目のAltから

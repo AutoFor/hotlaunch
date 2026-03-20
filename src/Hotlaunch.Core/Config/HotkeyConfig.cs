@@ -13,6 +13,8 @@ public class HotkeyEntry
     public string AppPath { get; set; } = "";
     public string Args { get; set; } = "";
     public string? ProcessName { get; set; }
+    public string? PostAction { get; set; }
+    public bool SkipIfNotRunning { get; set; } = false;
 }
 
 public class ModifierRemapConfig
@@ -26,4 +28,5 @@ public class AppConfig
     public LeaderConfig Leader { get; set; } = new();
     public ModifierRemapConfig[] ModifierRemaps { get; set; } = [];
     public HotkeyEntry[] Hotkeys { get; set; } = [];
+    public HotkeyEntry[] DirectHotkeys { get; set; } = [];
 }
