@@ -5,14 +5,19 @@ namespace Hotlaunch.Core.Tests;
 
 public class ModifierRemapperTests
 {
-    private const int MuhenkanVk = 0x1D; // VK_NONCONVERT
-    private const int CtrlVk     = 0x11; // VK_CONTROL
-    private const int AltVk      = 0x12; // VK_MENU
-    private const int CVk        = 0x43;
-    private const int ZVk        = 0x5A;
+    private const int MuhenkanVk  = 0x1D; // VK_NONCONVERT
+    private const int HenkanVk    = 0x1C; // VK_CONVERT
+    private const int CtrlVk      = 0x11; // VK_CONTROL
+    private const int AltVk       = 0x12; // VK_MENU
+    private const int CVk         = 0x43;
+    private const int ZVk         = 0x5A;
+    private const int SyntheticVk = 0xE8;
 
     private static ModifierRemapper Create()
         => new ModifierRemapper([(MuhenkanVk, CtrlVk)]);
+
+    private static ModifierRemapper CreateWithChord()
+        => new ModifierRemapper([(MuhenkanVk, CtrlVk)], [(MuhenkanVk, HenkanVk, SyntheticVk)]);
 
     [Fact]
     public void ソースキー押下はブロックされ何も注入しない()
@@ -120,5 +125,66 @@ public class ModifierRemapperTests
         var result = r.OnKeyDown(CVk);
         Assert.False(result.Block);
         Assert.Empty(result.Inject);
+    }
+
+    [Fact]
+    public void チョード_無変換押下後に変換を押すと合成VKが返る()
+    {
+        var r = CreateWithChord();
+        r.OnKeyDown(MuhenkanVk);
+        var result = r.OnKeyDown(HenkanVk);
+
+        Assert.True(result.Block);
+        Assert.Empty(result.Inject);
+        Assert.Equal(SyntheticVk, result.LeaderTriggerVk);
+    }
+
+    [Fact]
+    public void チョード_変換リリースは抑制される()
+    {
+        var r = CreateWithChord();
+        r.OnKeyDown(MuhenkanVk);
+        r.OnKeyDown(HenkanVk);
+        var result = r.OnKeyUp(HenkanVk);
+
+        Assert.True(result.Block);
+        Assert.Empty(result.Inject);
+    }
+
+    [Fact]
+    public void チョード_無変換リリースはCtrl注入せず抑制される()
+    {
+        var r = CreateWithChord();
+        r.OnKeyDown(MuhenkanVk);
+        r.OnKeyDown(HenkanVk);
+        r.OnKeyUp(HenkanVk);
+        var result = r.OnKeyUp(MuhenkanVk);
+
+        Assert.True(result.Block);
+        Assert.Empty(result.Inject); // Ctrl↑ が注入されないことを確認
+    }
+
+    [Fact]
+    public void チョード_無変換単独押しは従来どおり元キーを注入する()
+    {
+        var r = CreateWithChord();
+        r.OnKeyDown(MuhenkanVk);
+        var result = r.OnKeyUp(MuhenkanVk);
+
+        Assert.True(result.Block);
+        Assert.Equal(2, result.Inject.Count);
+        Assert.Equal((MuhenkanVk, false), result.Inject[0]);
+        Assert.Equal((MuhenkanVk, true),  result.Inject[1]);
+    }
+
+    [Fact]
+    public void チョード_無変換がCtrl修飾として使用済みなら変換押下でチョードにならない()
+    {
+        var r = CreateWithChord();
+        r.OnKeyDown(MuhenkanVk);
+        r.OnKeyDown(CVk);            // 無変換をCtrlとして使用
+        var result = r.OnKeyDown(HenkanVk); // この時点ではチョードにならない
+
+        Assert.Null(result.LeaderTriggerVk);
     }
 }
