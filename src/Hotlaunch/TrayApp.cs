@@ -19,6 +19,7 @@ sealed class TrayApp : IDisposable
     private readonly TaskbarIcon _trayIcon;
     private readonly KeyboardHook _hook;
     private readonly LeaderSequenceTracker _tracker;
+    private readonly IpcServer _ipcServer;
 
     public TrayApp()
     {
@@ -45,6 +46,14 @@ sealed class TrayApp : IDisposable
         // キャッシュすると 2 回目以降に ObjectDisposedException が発生するため、毎回新規生成する。
         _tracker.LeaderActivated   += () => _trayIcon.Dispatcher.Invoke(() => _trayIcon.Icon = CreateDotIcon(ActiveColor));
         _tracker.LeaderDeactivated += () => _trayIcon.Dispatcher.Invoke(() => _trayIcon.Icon = CreateDotIcon(NormalColor));
+
+        var spotifyHandler = new SpotifyPostActionHandler();
+        _ipcServer = new IpcServer();
+        _ipcServer.CommandReceived += cmd =>
+        {
+            if (spotifyHandler.CanHandle(cmd))
+                spotifyHandler.Execute(cmd, isNewlyLaunched: false);
+        };
     }
 
     private static Icon CreateDotIcon(Color color)
@@ -63,6 +72,7 @@ sealed class TrayApp : IDisposable
 
     public void Dispose()
     {
+        _ipcServer.Dispose();
         _hook.Dispose();
         _tracker.Dispose();
         _trayIcon.Dispose(); // 現在の Icon も H.NotifyIcon が Dispose する

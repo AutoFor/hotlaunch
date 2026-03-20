@@ -10,6 +10,13 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        // クライアントモード: 常駐インスタンスにコマンドを送って即終了
+        if (args.Contains("--spotify"))
+        {
+            IpcClient.TrySend("spotify-play-pause");
+            return;
+        }
+
         // --verbose / -v で全キー押下ログを出す。デフォルトは INF のみ。
         bool verbose = args.Contains("--verbose") || args.Contains("-v");
         // --tail でリアルタイムログウィンドウを表示する。
