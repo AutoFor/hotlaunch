@@ -53,6 +53,9 @@ static class HotlaunchFactory
         throw new ArgumentException($"Unknown key name: '{keyName}'");
     }
 
+    // 未割り当て VK: チョードリーダーの合成キーとして使用
+    private const int ChordSyntheticVk = 0xE8;
+
     public static (LeaderSequenceTracker Tracker, AppLauncher Launcher, KeyboardHook Hook)
         Create(AppConfig config)
     {
@@ -62,15 +65,24 @@ static class HotlaunchFactory
             new Win32ProcessStarter(),
             [new SpotifyPostActionHandler()]);
 
-        int leaderVk = ParseVk(config.Leader.Key);
+        bool isChord = !string.IsNullOrEmpty(config.Leader.ChordKey);
+        int leaderVk = isChord ? ChordSyntheticVk : ParseVk(config.Leader.Key);
+        int leaderCount = isChord ? 1 : config.Leader.Count;
+
         var sequences = config.Hotkeys.Select(h => (ParseVk(h.Key), h));
         var directKeys = config.DirectHotkeys.Select(h => (ParseVk(h.Key), h));
-        var tracker = new LeaderSequenceTracker(leaderVk, config.Leader.TimeoutMs, sequences, config.Leader.Count, directKeys);
+        var tracker = new LeaderSequenceTracker(leaderVk, config.Leader.TimeoutMs, sequences, leaderCount, directKeys);
 
         tracker.SequenceMatched += entry => launcher.Launch(entry);
 
-        ModifierRemapper? remapper = config.ModifierRemaps.Length > 0
-            ? new ModifierRemapper(config.ModifierRemaps.Select(r => (ParseVk(r.Source), ParseVk(r.Target))))
+        IEnumerable<(int, int, int)>? chordRules = isChord
+            ? [(ParseVk(config.Leader.Key), ParseVk(config.Leader.ChordKey!), ChordSyntheticVk)]
+            : null;
+
+        ModifierRemapper? remapper = (config.ModifierRemaps.Length > 0 || chordRules != null)
+            ? new ModifierRemapper(
+                config.ModifierRemaps.Select(r => (ParseVk(r.Source), ParseVk(r.Target))),
+                chordRules)
             : null;
 
         var hook = new KeyboardHook(tracker, remapper);

@@ -156,8 +156,10 @@ sealed class KeyboardHook : IDisposable
             var result = isDown ? _remapper.OnKeyDown(vk)
                        : isUp   ? _remapper.OnKeyUp(vk)
                        : default;
-            Log.Debug("リマッパー結果: Block={Block} InjectCount={InjectCount}", result.Block, result.Inject.Count);
+            Log.Debug("リマッパー結果: Block={Block} InjectCount={InjectCount} LeaderTrigger={LeaderTrigger}",
+                result.Block, result.Inject.Count, result.LeaderTriggerVk?.ToString("X2") ?? "-");
             if (result.Inject.Count > 0) SendKeys(result.Inject);
+            if (result.LeaderTriggerVk.HasValue) _tracker.OnKeyDown(result.LeaderTriggerVk.Value);
             if (result.Block) return (IntPtr)1;
         }
 
