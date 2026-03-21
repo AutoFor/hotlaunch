@@ -5,6 +5,8 @@ public class LeaderConfig
     public string Key { get; set; } = "Alt";
     public int TimeoutMs { get; set; } = 2000;
     public int Count { get; set; } = 1;
+    /// <summary>null = single/double-press モード。キー名を指定すると Key+ChordKey のコードリーダーになる。</summary>
+    public string? ChordKey { get; set; } = null;
 }
 
 public class HotkeyEntry

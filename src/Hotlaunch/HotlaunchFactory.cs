@@ -59,8 +59,9 @@ static class HotlaunchFactory
         var launcher = new AppLauncher(new Win32ProcessFinder(), new Win32WindowFocuser(), new Win32ProcessStarter());
 
         int leaderVk = ParseVk(config.Leader.Key);
+        int chordVk  = config.Leader.ChordKey != null ? ParseVk(config.Leader.ChordKey) : -1;
         var sequences = config.Hotkeys.Select(h => (ParseVk(h.Key), h));
-        var tracker = new LeaderSequenceTracker(leaderVk, config.Leader.TimeoutMs, sequences, config.Leader.Count);
+        var tracker = new LeaderSequenceTracker(leaderVk, config.Leader.TimeoutMs, sequences, config.Leader.Count, chordVk);
 
         tracker.SequenceMatched += entry => launcher.Launch(entry);
 
