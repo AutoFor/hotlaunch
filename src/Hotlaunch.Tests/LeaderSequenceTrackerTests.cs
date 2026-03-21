@@ -20,7 +20,7 @@ public class LeaderSequenceTrackerTests
     public void Alt押下はキーを抑制する()
     {
         using var tracker = CreateTracker();
-        Assert.True(tracker.OnKeyDown(AltVk));
+        Assert.True(tracker.OnKeyDown(AltVk).Block);
     }
 
     [Fact]
@@ -31,24 +31,28 @@ public class LeaderSequenceTrackerTests
         tracker.SequenceMatched += e => fired = e;
 
         tracker.OnKeyDown(AltVk);
-        var suppressed = tracker.OnKeyDown(WVk);
+        var result = tracker.OnKeyDown(WVk);
 
         Assert.NotNull(fired);
-        Assert.True(suppressed);
+        Assert.True(result.Block);
     }
 
     [Fact]
-    public void Alt後に未登録キーはイベントを発火せず通過する()
+    public void Alt後に未登録キーはイベントを発火せずリーダーとキーを再注入する()
     {
         using var tracker = CreateTracker();
         HotkeyEntry? fired = null;
         tracker.SequenceMatched += e => fired = e;
 
         tracker.OnKeyDown(AltVk);
-        var suppressed = tracker.OnKeyDown(AVk);
+        var result = tracker.OnKeyDown(AVk);
 
         Assert.Null(fired);
-        Assert.False(suppressed);
+        // 元キーはブロックし、リーダー→元キーの順で再注入する
+        Assert.True(result.Block);
+        Assert.Equal(2, result.Inject.Count);
+        Assert.Equal((AltVk, false), result.Inject[0]);
+        Assert.Equal((AVk, false), result.Inject[1]);
     }
 
     [Fact]
@@ -103,9 +107,9 @@ public class LeaderSequenceTrackerTests
         tracker.OnKeyDown(AltVk);
 
         // Modifier キーを押しても待機解除されない
-        Assert.False(tracker.OnKeyDown(0xA0)); // Shift
-        Assert.False(tracker.OnKeyDown(0xA2)); // Ctrl
-        Assert.False(tracker.OnKeyDown(0x5B)); // Win
+        Assert.False(tracker.OnKeyDown(0xA0).Block); // Shift
+        Assert.False(tracker.OnKeyDown(0xA2).Block); // Ctrl
+        Assert.False(tracker.OnKeyDown(0x5B).Block); // Win
 
         // その後 W を押すとマッチする
         tracker.OnKeyDown(WVk);
@@ -154,5 +158,104 @@ public class LeaderSequenceTrackerTests
         tracker.OnKeyDown(WVk);   // タイムアウト前のW → マッチするはず
 
         Assert.NotNull(fired);
+    }
+
+    // ---- チャードリーダーモード (無変換+Space) のテスト ----
+
+    private const int SpaceVk    = 0x20;
+    private const int MuhenkanVk = 0x1D;
+
+    private static LeaderSequenceTracker CreateChordTracker(int timeoutMs = 2000)
+    {
+        var entry = new HotkeyEntry { Key = "W", AppPath = @"C:\wezterm-gui.exe", ProcessName = "wezterm-gui" };
+        return new LeaderSequenceTracker(MuhenkanVk, timeoutMs, [(WVk, entry)], chordVk: SpaceVk);
+    }
+
+    [Fact]
+    public void チャード_無変換押下はブロックしIsHoldingModifierになる()
+    {
+        using var tracker = CreateChordTracker();
+        var result = tracker.OnKeyDown(MuhenkanVk);
+        Assert.True(result.Block);
+        Assert.True(tracker.IsHoldingModifier);
+    }
+
+    [Fact]
+    public void チャード_無変換Space押下でWaitingForSequenceになる()
+    {
+        using var tracker = CreateChordTracker();
+        tracker.OnKeyDown(MuhenkanVk);
+        var result = tracker.OnKeyDown(SpaceVk);
+        Assert.True(result.Block);
+        Assert.True(tracker.IsWaitingForSequence);
+    }
+
+    [Fact]
+    public void チャード_無変換Space後にWでイベント発火する()
+    {
+        using var tracker = CreateChordTracker();
+        HotkeyEntry? fired = null;
+        tracker.SequenceMatched += e => fired = e;
+
+        tracker.OnKeyDown(MuhenkanVk);
+        tracker.OnKeyDown(SpaceVk);
+        var result = tracker.OnKeyDown(WVk);
+
+        Assert.NotNull(fired);
+        Assert.True(result.Block);
+    }
+
+    [Fact]
+    public void チャード_無変換後に別キーでキャンセルしリマッパー経由再注入する()
+    {
+        using var tracker = CreateChordTracker();
+        HotkeyEntry? fired = null;
+        tracker.SequenceMatched += e => fired = e;
+
+        tracker.OnKeyDown(MuhenkanVk);
+        var result = tracker.OnKeyDown(0x43); // C キー
+
+        Assert.Null(fired);
+        Assert.True(result.Block);
+        // 無変換+C をリマッパー経由で再注入（Ctrl+C になる）
+        Assert.Equal(2, result.InjectForRemapper.Count);
+        Assert.Equal((MuhenkanVk, false), result.InjectForRemapper[0]);
+        Assert.Equal((0x43, false), result.InjectForRemapper[1]);
+    }
+
+    [Fact]
+    public void チャード_無変換解放でHoldingModifierからIdleに戻りソロタップ再注入する()
+    {
+        using var tracker = CreateChordTracker();
+        tracker.OnKeyDown(MuhenkanVk);
+        Assert.True(tracker.IsHoldingModifier);
+
+        var result = tracker.OnKeyUp(MuhenkanVk);
+        Assert.True(result.Block);
+        Assert.False(tracker.IsHoldingModifier);
+        Assert.False(tracker.IsWaitingForSequence);
+        // ソロタップとして元キーを再注入する
+        Assert.Equal(2, result.Inject.Count);
+        Assert.Equal((MuhenkanVk, false), result.Inject[0]); // 無変換↓
+        Assert.Equal((MuhenkanVk, true),  result.Inject[1]); // 無変換↑
+    }
+
+    [Fact]
+    public void チャード_WaitingForSequence中の未登録キーはリーダーチャード元キーを再注入する()
+    {
+        using var tracker = CreateChordTracker();
+        HotkeyEntry? fired = null;
+        tracker.SequenceMatched += e => fired = e;
+
+        tracker.OnKeyDown(MuhenkanVk);
+        tracker.OnKeyDown(SpaceVk);
+        var result = tracker.OnKeyDown(AVk); // 未登録キー
+
+        Assert.Null(fired);
+        Assert.True(result.Block);
+        Assert.Equal(3, result.Inject.Count);
+        Assert.Equal((MuhenkanVk, false), result.Inject[0]);
+        Assert.Equal((SpaceVk,    false), result.Inject[1]);
+        Assert.Equal((AVk,        false), result.Inject[2]);
     }
 }
