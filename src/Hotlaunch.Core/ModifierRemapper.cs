@@ -2,7 +2,15 @@ using Serilog;
 
 namespace Hotlaunch.Core;
 
-public readonly record struct RemapResult(bool Block, IReadOnlyList<(int Vk, bool KeyUp)> Inject);
+public readonly record struct RemapResult(
+    bool Block,
+    IReadOnlyList<(int Vk, bool KeyUp)> Inject,
+    IReadOnlyList<(int Vk, bool KeyUp)> InjectForRemapper)
+{
+    // 後方互換: Inject のみ指定する 2 引数コンストラクタ
+    public RemapResult(bool block, IReadOnlyList<(int Vk, bool KeyUp)> inject)
+        : this(block, inject, []) { }
+}
 
 public sealed class ModifierRemapper
 {
@@ -10,9 +18,22 @@ public sealed class ModifierRemapper
     private readonly HashSet<int> _heldSources = new();
     private readonly HashSet<int> _usedAsModifier = new();
     private readonly HashSet<int> _heldNonSourceKeys = new();
+    // Reset() 時に保留中だったソースキー。UP イベントをスルーして誤ったソロタップ注入を防ぐ
+    private readonly HashSet<int> _ghostSources = new();
+
+    // これらの IME キーはコンボ対象外（Ctrl+変換 等を意図せず生成しない）
+    private static readonly HashSet<int> NonComboKeys =
+    [
+        0x1C, // VK_CONVERT（変換）
+        0x1D, // VK_NONCONVERT（無変換）
+        0x15, // VK_KANA
+    ];
 
     public ModifierRemapper(IEnumerable<(int sourceVk, int targetVk)> rules)
         => _rules = rules.ToDictionary(r => r.sourceVk, r => r.targetVk);
+
+    /// <summary>このキーがソースキー保持中にコンボ対象になるかどうか。</summary>
+    public bool IsComboTarget(int vk) => !NonComboKeys.Contains(vk);
 
     public bool HasPendingState =>
         _heldSources.Count > 0 || _heldNonSourceKeys.Count > 0;
@@ -22,9 +43,17 @@ public sealed class ModifierRemapper
         $"usedAsModifier=[{string.Join(",", _usedAsModifier.Select(v => $"0x{v:X2}"))}] " +
         $"heldNonSourceKeys=[{string.Join(",", _heldNonSourceKeys.Select(v => $"0x{v:X2}"))}]";
 
+    /// <summary>
+    /// 次回の指定キー UP をゴーストとして抑制する。
+    /// トラッカーがリーダーキーの DOWN をブロックしたとき、リマッパーが知らずにソロタップを
+    /// 注入しないよう呼ぶ。
+    /// </summary>
+    public void SuppressNextKeyUp(int vk) => _ghostSources.Add(vk);
+
     /// <summary>スタック状態をリセットする。無変換+C が効かなくなったときにトレイから呼ぶ。</summary>
     public void Reset()
     {
+        foreach (var s in _heldSources) _ghostSources.Add(s);
         _heldSources.Clear();
         _usedAsModifier.Clear();
         _heldNonSourceKeys.Clear();
@@ -40,9 +69,14 @@ public sealed class ModifierRemapper
             Log.Information("リマッパー: 0x{VkHex} 押下 → ソースキー追跡開始", vkCode.ToString("X2"));
             return new RemapResult(true, []);
         }
-        // ソースキー保持中 → ターゲット+元キーを注入
+        // ソースキー保持中 → ターゲット+元キーを注入（ただし IME キー等は非コンボ対象）
         if (_heldSources.Count > 0)
         {
+            if (NonComboKeys.Contains(vkCode))
+            {
+                Log.Debug("リマッパー: 0x{VkHex} はコンボ対象外 → 素通し", vkCode.ToString("X2"));
+                return new RemapResult(false, []);
+            }
             var inject = new List<(int, bool)>();
             foreach (var src in _heldSources)
                 if (_usedAsModifier.Add(src))
@@ -59,6 +93,13 @@ public sealed class ModifierRemapper
 
     public RemapResult OnKeyUp(int vkCode)
     {
+        // ゴーストソースキー → heldSources に再登録されていなければ抑制（ソロタップ注入を防ぐ）
+        if (_ghostSources.Remove(vkCode) && !_heldSources.Contains(vkCode))
+        {
+            Log.Debug("リマッパー: 0x{VkHex} ゴーストソースキーリリース → 無視", vkCode.ToString("X2"));
+            return new RemapResult(true, []);
+        }
+
         // ソースキーリリース
         if (_rules.TryGetValue(vkCode, out int targetVk))
         {
