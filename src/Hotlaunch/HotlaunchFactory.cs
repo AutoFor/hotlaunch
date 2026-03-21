@@ -35,6 +35,7 @@ static class HotlaunchFactory
         ["F1"]  = 0x70, ["F2"]  = 0x71, ["F3"]  = 0x72, ["F4"]  = 0x73,
         ["F5"]  = 0x74, ["F6"]  = 0x75, ["F7"]  = 0x76, ["F8"]  = 0x77,
         ["F9"]  = 0x78, ["F10"] = 0x79, ["F11"] = 0x7A, ["F12"] = 0x7B,
+        ["F13"] = 0x7C, ["F14"] = 0x7D, ["F15"] = 0x7E, ["F16"] = 0x7F,
         // 特殊キー
         ["Return"]   = 0x0D, ["Enter"]    = 0x0D,
         ["Space"]    = 0x20, ["Tab"]      = 0x09,
@@ -61,7 +62,7 @@ static class HotlaunchFactory
         int leaderVk = ParseVk(config.Leader.Key);
         int chordVk  = config.Leader.ChordKey != null ? ParseVk(config.Leader.ChordKey) : -1;
         var sequences = config.Hotkeys.Select(h => (ParseVk(h.Key), h));
-        var tracker = new LeaderSequenceTracker(leaderVk, config.Leader.TimeoutMs, sequences, config.Leader.Count, chordVk);
+        var tracker = new LeaderSequenceTracker(leaderVk, config.Leader.TimeoutMs, sequences, config.Leader.Count, chordVk, config.Leader.ChordDelayMs);
 
         tracker.SequenceMatched += entry => launcher.Launch(entry);
 

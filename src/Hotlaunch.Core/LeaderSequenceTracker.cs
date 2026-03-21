@@ -12,9 +12,11 @@ public sealed class LeaderSequenceTracker : IDisposable
     private int _pressCount;
     private System.Threading.Timer? _timer;
     private readonly int _leaderVk;
-    private readonly int _chordVk; // -1 = single/double-press モード
+    private readonly int _chordVk;       // -1 = single/double-press モード
     private readonly int _timeoutMs;
+    private readonly int _chordDelayMs;  // この時間より短い同時押しは素通し
     private readonly int _leaderPressesNeeded;
+    private long _holdingModifierStartMs;
     private readonly IReadOnlyDictionary<int, HotkeyEntry> _sequences;
 
     public event Action<HotkeyEntry>? SequenceMatched;
@@ -27,11 +29,12 @@ public sealed class LeaderSequenceTracker : IDisposable
     public int LeaderVk => _leaderVk;
     public int ChordVk  => _chordVk;
 
-    public LeaderSequenceTracker(int leaderVk, int timeoutMs, IEnumerable<(int Vk, HotkeyEntry Entry)> sequences, int leaderCount = 1, int chordVk = -1)
+    public LeaderSequenceTracker(int leaderVk, int timeoutMs, IEnumerable<(int Vk, HotkeyEntry Entry)> sequences, int leaderCount = 1, int chordVk = -1, int chordDelayMs = 200)
     {
         _leaderVk = leaderVk;
         _chordVk  = chordVk;
         _timeoutMs = timeoutMs;
+        _chordDelayMs = chordDelayMs;
         _leaderPressesNeeded = Math.Max(1, leaderCount);
         _sequences = sequences.ToDictionary(x => x.Vk, x => x.Entry);
     }
@@ -71,7 +74,11 @@ public sealed class LeaderSequenceTracker : IDisposable
         // Idle/HoldingModifier + リーダーキー → HoldingModifier
         if ((_state == State.Idle || _state == State.HoldingModifier) && vkCode == _leaderVk)
         {
-            if (_state == State.Idle) TransitionTo(State.HoldingModifier);
+            if (_state == State.Idle)
+            {
+                TransitionTo(State.HoldingModifier);
+                _holdingModifierStartMs = Environment.TickCount64;
+            }
             ResetTimer();
             Log.Information("チャードリーダー修飾キー押下 → 修飾待機");
             return new RemapResult(true, []);
@@ -82,13 +89,22 @@ public sealed class LeaderSequenceTracker : IDisposable
             if (ModifierVkCodes.Contains(vkCode))
                 return new RemapResult(false, []);
 
-            // チャードキー → WaitingForSequence
+            // チャードキー → 保持時間が ChordDelayMs 未満なら同時押し扱いで素通し
             if (vkCode == _chordVk)
             {
+                var elapsed = Environment.TickCount64 - _holdingModifierStartMs;
+                if (elapsed < _chordDelayMs)
+                {
+                    // 親指シフト等の同時押し → キャンセルして両キーを素通し注入（リマッパー不使用）
+                    CancelTimer();
+                    TransitionTo(State.Idle);
+                    Log.Debug("チャードキー同時押し検出 ({Elapsed}ms < {Delay}ms) → 素通し再注入", elapsed, _chordDelayMs);
+                    return new RemapResult(true, [(_leaderVk, false), (vkCode, false)]);
+                }
                 CancelTimer();
                 TransitionTo(State.WaitingForSequence);
                 ResetTimer();
-                Log.Information("チャードキー押下 → 待機モード開始 ({TimeoutMs}ms)", _timeoutMs);
+                Log.Information("チャードキー押下 ({Elapsed}ms) → 待機モード開始 ({TimeoutMs}ms)", elapsed, _timeoutMs);
                 return new RemapResult(true, []);
             }
 
@@ -175,21 +191,22 @@ public sealed class LeaderSequenceTracker : IDisposable
             return new RemapResult(true, [(_leaderVk, false), (vkCode, false)]);
     }
 
-    /// <summary>キー解放を通知する。コードモードでリーダー修飾キーが解放された場合に状態を戻す。</summary>
-    public RemapResult OnKeyUp(int vkCode)
+    /// <summary>
+    /// キー解放を通知する。チャードモードでリーダー修飾キーが解放された場合に状態を Idle へ戻す。
+    /// ソロタップ再注入等の処理は KeyboardHook 側で IsSourceKey に基づいて行う。
+    /// </summary>
+    public bool OnKeyUp(int vkCode)
     {
         lock (_lock)
         {
-            // コードモード: HoldingModifier 中にリーダー修飾キーが解放 → Idle へ
-            // ソロタップ扱いで元キーを再注入（IME キーとして機能させる）
             if (_chordVk >= 0 && _state == State.HoldingModifier && vkCode == _leaderVk)
             {
                 CancelTimer();
                 TransitionTo(State.Idle);
-                Log.Debug("チャードリーダー修飾キー単独解放 → Idle + ソロタップ再注入");
-                return new RemapResult(true, [(_leaderVk, false), (_leaderVk, true)]);
+                Log.Debug("チャードリーダー修飾キー単独解放 → Idle");
+                return true; // キー解放を検出したことをフックに通知
             }
-            return new RemapResult(false, []);
+            return false;
         }
     }
 

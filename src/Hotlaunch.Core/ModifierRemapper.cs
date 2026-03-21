@@ -21,12 +21,13 @@ public sealed class ModifierRemapper
     // Reset() 時に保留中だったソースキー。UP イベントをスルーして誤ったソロタップ注入を防ぐ
     private readonly HashSet<int> _ghostSources = new();
 
-    // これらの IME キーはコンボ対象外（Ctrl+変換 等を意図せず生成しない）
+    // これらのキーはコンボ対象外（Ctrl+変換/Space 等を意図せず生成しない）
     private static readonly HashSet<int> NonComboKeys =
     [
         0x1C, // VK_CONVERT（変換）
         0x1D, // VK_NONCONVERT（無変換）
         0x15, // VK_KANA
+        0x20, // VK_SPACE（親指シフトの右親指キーとして使う場合に変換しない）
     ];
 
     public ModifierRemapper(IEnumerable<(int sourceVk, int targetVk)> rules)
@@ -34,6 +35,9 @@ public sealed class ModifierRemapper
 
     /// <summary>このキーがソースキー保持中にコンボ対象になるかどうか。</summary>
     public bool IsComboTarget(int vk) => !NonComboKeys.Contains(vk);
+
+    /// <summary>このキーがリマッパーのソースキーかどうか（無変換等）。</summary>
+    public bool IsSourceKey(int vk) => _rules.ContainsKey(vk);
 
     public bool HasPendingState =>
         _heldSources.Count > 0 || _heldNonSourceKeys.Count > 0;
@@ -62,12 +66,12 @@ public sealed class ModifierRemapper
 
     public RemapResult OnKeyDown(int vkCode)
     {
-        // ソースキー押下 → 追跡開始
+        // ソースキー押下 → 追跡開始（物理キーは素通し: 親指シフト等がそのまま受け取れる）
         if (_rules.ContainsKey(vkCode))
         {
             _heldSources.Add(vkCode);
-            Log.Information("リマッパー: 0x{VkHex} 押下 → ソースキー追跡開始", vkCode.ToString("X2"));
-            return new RemapResult(true, []);
+            Log.Information("リマッパー: 0x{VkHex} 押下 → ソースキー追跡開始 (素通し)", vkCode.ToString("X2"));
+            return new RemapResult(false, []);
         }
         // ソースキー保持中 → ターゲット+元キーを注入（ただし IME キー等は非コンボ対象）
         if (_heldSources.Count > 0)
@@ -107,14 +111,15 @@ public sealed class ModifierRemapper
             bool wasUsed = _usedAsModifier.Remove(vkCode);
             if (wasUsed)
             {
-                Log.Information("リマッパー: 0x{VkHex} リリース (修飾キーとして使用済み → 0x{TargetHex}↑注入)",
+                Log.Information("リマッパー: 0x{VkHex} リリース (修飾キーとして使用済み → 0x{TargetHex}↑注入, 物理↑素通し)",
                     vkCode.ToString("X2"), targetVk.ToString("X2"));
-                return new RemapResult(true, [(targetVk, true)]);
+                return new RemapResult(false, [(targetVk, true)]);
             }
             else
             {
-                Log.Information("リマッパー: 0x{VkHex} リリース (単独押し → 元キー注入)", vkCode.ToString("X2"));
-                return new RemapResult(true, [(vkCode, false), (vkCode, true)]);
+                // 単独押し: 物理キーは OnKeyDown 時に素通し済みなので物理↑もそのまま通す
+                Log.Information("リマッパー: 0x{VkHex} リリース (単独押し → 素通し)", vkCode.ToString("X2"));
+                return new RemapResult(false, []);
             }
         }
         // コンボ中に押された非ソースキーのリリース → キーアップを注入（ソース先行リリース時も対応）

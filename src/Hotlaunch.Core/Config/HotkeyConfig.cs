@@ -7,6 +7,11 @@ public class LeaderConfig
     public int Count { get; set; } = 1;
     /// <summary>null = single/double-press モード。キー名を指定すると Key+ChordKey のコードリーダーになる。</summary>
     public string? ChordKey { get; set; } = null;
+    /// <summary>
+    /// チャードリーダーモード時に、修飾キー押下からチャードキー押下までの最低待機時間（ms）。
+    /// これより短い同時押しは親指シフト等の通常入力として素通しする。デフォルト 200ms。
+    /// </summary>
+    public int ChordDelayMs { get; set; } = 200;
 }
 
 public class HotkeyEntry

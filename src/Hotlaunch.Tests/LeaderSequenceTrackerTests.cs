@@ -165,10 +165,11 @@ public class LeaderSequenceTrackerTests
     private const int SpaceVk    = 0x20;
     private const int MuhenkanVk = 0x1D;
 
-    private static LeaderSequenceTracker CreateChordTracker(int timeoutMs = 2000)
+    // テストは瞬時実行なので chordDelayMs=0 をデフォルトにする
+    private static LeaderSequenceTracker CreateChordTracker(int timeoutMs = 2000, int chordDelayMs = 0)
     {
         var entry = new HotkeyEntry { Key = "W", AppPath = @"C:\wezterm-gui.exe", ProcessName = "wezterm-gui" };
-        return new LeaderSequenceTracker(MuhenkanVk, timeoutMs, [(WVk, entry)], chordVk: SpaceVk);
+        return new LeaderSequenceTracker(MuhenkanVk, timeoutMs, [(WVk, entry)], chordVk: SpaceVk, chordDelayMs: chordDelayMs);
     }
 
     [Fact]
@@ -188,6 +189,27 @@ public class LeaderSequenceTrackerTests
         var result = tracker.OnKeyDown(SpaceVk);
         Assert.True(result.Block);
         Assert.True(tracker.IsWaitingForSequence);
+    }
+
+    [Fact]
+    public void チャード_同時押しはリマッパー経由で素通しする()
+    {
+        // ChordDelayMs=200 で、即座に Space を押した場合は親指シフト扱い
+        using var tracker = CreateChordTracker(chordDelayMs: 200);
+        HotkeyEntry? fired = null;
+        tracker.SequenceMatched += e => fired = e;
+
+        tracker.OnKeyDown(MuhenkanVk);
+        // すぐに Space → 同時押し扱い（経過時間ほぼ 0ms < 200ms）
+        var result = tracker.OnKeyDown(SpaceVk);
+
+        Assert.Null(fired);
+        Assert.True(result.Block);
+        Assert.False(tracker.IsWaitingForSequence);
+        // 両キーをリマッパーを通さず素通し注入（Ctrl+Space にならないよう）
+        Assert.Equal(2, result.Inject.Count);
+        Assert.Equal((MuhenkanVk, false), result.Inject[0]);
+        Assert.Equal((SpaceVk,    false), result.Inject[1]);
     }
 
     [Fact]
@@ -224,20 +246,17 @@ public class LeaderSequenceTrackerTests
     }
 
     [Fact]
-    public void チャード_無変換解放でHoldingModifierからIdleに戻りソロタップ再注入する()
+    public void チャード_無変換解放でHoldingModifierからIdleに戻る()
     {
         using var tracker = CreateChordTracker();
         tracker.OnKeyDown(MuhenkanVk);
         Assert.True(tracker.IsHoldingModifier);
 
-        var result = tracker.OnKeyUp(MuhenkanVk);
-        Assert.True(result.Block);
+        bool detected = tracker.OnKeyUp(MuhenkanVk);
+        Assert.True(detected); // リーダー解放を検出
         Assert.False(tracker.IsHoldingModifier);
         Assert.False(tracker.IsWaitingForSequence);
-        // ソロタップとして元キーを再注入する
-        Assert.Equal(2, result.Inject.Count);
-        Assert.Equal((MuhenkanVk, false), result.Inject[0]); // 無変換↓
-        Assert.Equal((MuhenkanVk, true),  result.Inject[1]); // 無変換↑
+        // ソロタップ再注入は KeyboardHook 側（IsSourceKey で判断）が担当
     }
 
     [Fact]

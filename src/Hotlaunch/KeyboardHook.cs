@@ -179,7 +179,9 @@ sealed class KeyboardHook : IDisposable
             var trackerResult = _tracker.OnKeyDown(vk);
             if (trackerResult.Block)
             {
-                _remapper?.SuppressNextKeyUp(vk);
+                // リマッパーソースキー（無変換等）のみ ghost 抑制。Ctrl 等の通常キーは不要。
+                if (_remapper?.IsSourceKey(vk) == true)
+                    _remapper.SuppressNextKeyUp(vk);
                 if (trackerResult.InjectForRemapper.Count > 0) DispatchInjectForRemapper(trackerResult.InjectForRemapper);
                 if (trackerResult.Inject.Count > 0) SendKeys(trackerResult.Inject);
                 return (IntPtr)1;
@@ -194,7 +196,16 @@ sealed class KeyboardHook : IDisposable
             var trackerResult = _tracker.OnKeyDown(vk);
             if (trackerResult.Block)
             {
-                _remapper?.SuppressNextKeyUp(vk);
+                if (trackerResult.Inject.Count > 0)
+                {
+                    // 同時押しキャンセル: 素通し再注入（Space↑は抑制しない）
+                    SendKeys(trackerResult.Inject);
+                }
+                else
+                {
+                    // 通常チャード起動: チャードキーの↑を抑制
+                    _remapper?.SuppressNextKeyUp(vk);
+                }
                 return (IntPtr)1;
             }
         }
@@ -202,9 +213,16 @@ sealed class KeyboardHook : IDisposable
         // [2c] キーアップ: チャードモードでリーダー修飾キー解放時の状態更新（リマッパーより前に実行）
         if (!isRemapOnly && isUp && _tracker.ChordVk >= 0)
         {
-            var upResult = _tracker.OnKeyUp(vk);
-            if (upResult.Inject.Count > 0) SendKeys(upResult.Inject); // ソロタップ再注入
-            if (upResult.Block) return (IntPtr)1;
+            bool wasHolding = _tracker.IsHoldingModifier;
+            bool leaderReleased = _tracker.OnKeyUp(vk);
+
+            if (leaderReleased && _remapper?.IsSourceKey(vk) == true)
+            {
+                // IMEキー（無変換等）のソロタップ: 再注入して物理↑をブロック
+                SendKeys([(vk, false), (vk, true)]);
+                return (IntPtr)1;
+            }
+            // 通常キー（Ctrl等）: 物理↑をそのまま通す → 以降の処理へ
         }
 
         // [3] リマッパー処理（物理キーと REMAP_ONLY 注入の両方）

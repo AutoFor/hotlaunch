@@ -15,11 +15,11 @@ public class ModifierRemapperTests
         => new ModifierRemapper([(MuhenkanVk, CtrlVk)]);
 
     [Fact]
-    public void ソースキー押下はブロックされ何も注入しない()
+    public void ソースキー押下は素通しで何も注入しない()
     {
         var r = Create();
         var result = r.OnKeyDown(MuhenkanVk);
-        Assert.True(result.Block);
+        Assert.False(result.Block); // 物理キーを素通し（親指シフト等がそのまま受け取れる）
         Assert.Empty(result.Inject);
     }
 
@@ -50,7 +50,7 @@ public class ModifierRemapperTests
     }
 
     [Fact]
-    public void ソースキーリリースでターゲットキーアップが注入される()
+    public void ソースキーリリースでターゲットキーアップが注入され物理キーは素通し()
     {
         var r = Create();
         r.OnKeyDown(MuhenkanVk);
@@ -58,22 +58,21 @@ public class ModifierRemapperTests
         r.OnKeyUp(CVk);
         var result = r.OnKeyUp(MuhenkanVk);
 
-        Assert.True(result.Block);
+        Assert.False(result.Block); // 物理↑も素通し
         Assert.Single(result.Inject);
         Assert.Equal((CtrlVk, true), result.Inject[0]);
     }
 
     [Fact]
-    public void 単独押しリリースでは元キーを注入する()
+    public void 単独押しリリースは素通しで注入しない()
     {
+        // OnKeyDown で物理↓が素通し済みなので OnKeyUp も素通し（注入不要）
         var r = Create();
         r.OnKeyDown(MuhenkanVk);
         var result = r.OnKeyUp(MuhenkanVk);
 
-        Assert.True(result.Block);
-        Assert.Equal(2, result.Inject.Count);
-        Assert.Equal((MuhenkanVk, false), result.Inject[0]); // 元キー↓
-        Assert.Equal((MuhenkanVk, true),  result.Inject[1]); // 元キー↑
+        Assert.False(result.Block);
+        Assert.Empty(result.Inject);
     }
 
     [Fact]
