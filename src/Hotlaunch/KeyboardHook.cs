@@ -78,6 +78,8 @@ sealed class KeyboardHook : IDisposable
     private const int WM_SYSKEYUP     = 0x0105;
     private const uint WM_QUIT        = 0x0012;
     private const uint LLKHF_INJECTED = 0x10;
+    // リマッパーだけ通過させる注入イベントのマーカー（dwExtraInfo に設定）
+    private static readonly IntPtr HOTLAUNCH_REMAP_MARKER = new(0x484C4A01);
 
     private readonly LowLevelKeyboardProc _proc; // GC されないよう保持
     private readonly LeaderSequenceTracker _tracker;
@@ -149,8 +151,63 @@ sealed class KeyboardHook : IDisposable
         Log.Debug("フック受信: VK=0x{VkHex} isDown={IsDown} isUp={IsUp} isInjected={IsInjected}",
             vk.ToString("X2"), isDown, isUp, isInjected);
 
-        if (isInjected) return CallNextHookEx(_hookId, nCode, wParam, lParam);
+        // REMAP_ONLY 注入: リマッパーのみ通過（PressingLeader キャンセル時のリーダー+コンボキー再注入）
+        bool isRemapOnly = isInjected && kbs.dwExtraInfo == HOTLAUNCH_REMAP_MARKER;
+        // その他のすべての注入イベント（hotlaunch 自身の通常注入・外部アプリの注入）はスキップ
+        if (isInjected && !isRemapOnly) return CallNextHookEx(_hookId, nCode, wParam, lParam);
 
+        // [1] シーケンス待機中はシーケンスキーをリマッパーより優先
+        bool trackerEarlyHandled = false;
+        if (!isRemapOnly && isDown && _tracker.IsWaitingForSequence && _tracker.IsSequenceKey(vk))
+        {
+            Log.Debug("トラッカー優先: WaitingForSequence + シーケンスキー 0x{VkHex}", vk.ToString("X2"));
+            var trackerResult = _tracker.OnKeyDown(vk);
+            if (trackerResult.Inject.Count > 0) SendKeys(trackerResult.Inject);
+            if (trackerResult.Block)
+            {
+                _remapper?.Reset();
+                return (IntPtr)1;
+            }
+            trackerEarlyHandled = true;
+        }
+
+        // [2] リーダーキーはトラッカーを優先（リマッパーがソースキーとして横取りする前に処理）
+        bool leaderHandled = false;
+        if (!isRemapOnly && isDown && vk == _tracker.LeaderVk)
+        {
+            Log.Debug("リーダーキー優先処理: 0x{VkHex}", vk.ToString("X2"));
+            var trackerResult = _tracker.OnKeyDown(vk);
+            if (trackerResult.Block)
+            {
+                _remapper?.SuppressNextKeyUp(vk);
+                if (trackerResult.InjectForRemapper.Count > 0) DispatchInjectForRemapper(trackerResult.InjectForRemapper);
+                if (trackerResult.Inject.Count > 0) SendKeys(trackerResult.Inject);
+                return (IntPtr)1;
+            }
+            leaderHandled = true;
+        }
+
+        // [2b] チャードキー: HoldingModifier 状態でチャードキーを検出（リマッパーより優先）
+        if (!isRemapOnly && isDown && _tracker.ChordVk >= 0 && vk == _tracker.ChordVk && _tracker.IsHoldingModifier)
+        {
+            Log.Debug("チャードキー優先処理: 0x{VkHex}", vk.ToString("X2"));
+            var trackerResult = _tracker.OnKeyDown(vk);
+            if (trackerResult.Block)
+            {
+                _remapper?.SuppressNextKeyUp(vk);
+                return (IntPtr)1;
+            }
+        }
+
+        // [2c] キーアップ: チャードモードでリーダー修飾キー解放時の状態更新（リマッパーより前に実行）
+        if (!isRemapOnly && isUp && _tracker.ChordVk >= 0)
+        {
+            var upResult = _tracker.OnKeyUp(vk);
+            if (upResult.Inject.Count > 0) SendKeys(upResult.Inject); // ソロタップ再注入
+            if (upResult.Block) return (IntPtr)1;
+        }
+
+        // [3] リマッパー処理（物理キーと REMAP_ONLY 注入の両方）
         if (_remapper != null)
         {
             var result = isDown ? _remapper.OnKeyDown(vk)
@@ -161,21 +218,46 @@ sealed class KeyboardHook : IDisposable
             if (result.Block) return (IntPtr)1;
         }
 
-        if (isDown)
+        // [4] トラッカー処理（物理キー・リーダー/シーケンス処理済みを除く）
+        if (!isRemapOnly && isDown && !trackerEarlyHandled && !leaderHandled)
         {
             Log.Debug("キー押下: VK={VkCode} (0x{VkHex})", vk, vk.ToString("X2"));
-            if (_tracker.OnKeyDown(vk))
-                return (IntPtr)1;
+            var trackerResult = _tracker.OnKeyDown(vk);
+            if (trackerResult.InjectForRemapper.Count > 0) DispatchInjectForRemapper(trackerResult.InjectForRemapper);
+            if (trackerResult.Inject.Count > 0) SendKeys(trackerResult.Inject);
+            if (trackerResult.Block) return (IntPtr)1;
         }
 
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
     }
 
     private void SendKeys(IReadOnlyList<(int Vk, bool KeyUp)> keys)
+        => SendInputInternal(keys, IntPtr.Zero);
+
+    /// <summary>リマッパーだけ通過させる注入（PressingLeader キャンセル時のリーダー+コンボキー）</summary>
+    private void SendKeysForRemapper(IReadOnlyList<(int Vk, bool KeyUp)> keys)
+        => SendInputInternal(keys, HOTLAUNCH_REMAP_MARKER);
+
+    /// <summary>
+    /// InjectForRemapper を処理する。コンボ対象キーならリマッパー経由、
+    /// IMEキー等の非コンボ対象なら素通し注入（変換+無変換が Ctrl+変換 になるのを防ぐ）。
+    /// </summary>
+    private void DispatchInjectForRemapper(IReadOnlyList<(int Vk, bool KeyUp)> keys)
+    {
+        if (keys.Count == 0) return;
+        // 末尾がコンボキー（リーダー×N + コンボキー1個 の構成）
+        var comboKey = keys[^1];
+        if (_remapper?.IsComboTarget(comboKey.Vk) ?? true)
+            SendKeysForRemapper(keys);   // Ctrl+C など: リマッパー経由
+        else
+            SendKeys(keys);              // 変換など IME キー: 素通し注入
+    }
+
+    private void SendInputInternal(IReadOnlyList<(int Vk, bool KeyUp)> keys, IntPtr extraInfo)
     {
         var inputs = new INPUT[keys.Count];
         for (int i = 0; i < keys.Count; i++)
-            inputs[i] = new INPUT { Type = 1, ki = new KEYBDINPUT { wVk = (ushort)keys[i].Vk, dwFlags = keys[i].KeyUp ? 0x0002u : 0u } };
+            inputs[i] = new INPUT { Type = 1, ki = new KEYBDINPUT { wVk = (ushort)keys[i].Vk, dwFlags = keys[i].KeyUp ? 0x0002u : 0u, dwExtraInfo = extraInfo } };
         uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
         if (sent != (uint)inputs.Length)
             Log.Warning("SendInput 失敗: sent={Sent}/{Total} err={Err}", sent, inputs.Length, Marshal.GetLastWin32Error());
