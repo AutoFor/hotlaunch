@@ -20,10 +20,14 @@ public class AppLauncher(
         var process = finder.FindByName(processName);
         bool isNewlyLaunched = false;
 
-        if (process != null)
+        if (process != null && !entry.SkipFocus)
         {
             Log.Information("フォーカス: {ProcessName} (最小化={IsMinimized})", processName, process.IsMinimized);
             focuser.Focus(process.MainWindowHandle, restore: process.IsMinimized);
+        }
+        else if (process != null && entry.SkipFocus)
+        {
+            Log.Information("フォーカススキップ: {ProcessName}", processName);
         }
         else if (entry.SkipIfNotRunning)
         {

@@ -16,6 +16,8 @@ public class HotkeyEntry
     public string? ProcessName { get; set; }
     public string? PostAction { get; set; }
     public bool SkipIfNotRunning { get; set; } = false;
+    public bool SkipFocus { get; set; } = false;
+    public string[] RequiredModifiers { get; set; } = [];
 }
 
 public class ModifierRemapConfig

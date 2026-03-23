@@ -64,14 +64,15 @@ static class HotlaunchFactory
             new Win32ProcessFinder(),
             new Win32WindowFocuser(),
             new Win32ProcessStarter(),
-            [new SpotifyPostActionHandler()]);
+            [new SpotifyPostActionHandler(), new TeamsPostActionHandler()]);
 
         bool isChord = !string.IsNullOrEmpty(config.Leader.ChordKey);
         int leaderVk = isChord ? ChordSyntheticVk : ParseVk(config.Leader.Key);
         int leaderCount = isChord ? 1 : config.Leader.Count;
 
         var sequences = config.Hotkeys.Select(h => (ParseVk(h.Key), h));
-        var directKeys = config.DirectHotkeys.Select(h => (ParseVk(h.Key), h));
+        var directKeys = config.DirectHotkeys.Select(h =>
+            (ParseVk(h.Key), h, (IReadOnlySet<int>)h.RequiredModifiers.Select(ParseVk).ToHashSet()));
         var tracker = new LeaderSequenceTracker(leaderVk, config.Leader.TimeoutMs, sequences, leaderCount, directKeys);
 
         tracker.SequenceMatched += entry => launcher.Launch(entry);

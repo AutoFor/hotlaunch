@@ -15,19 +15,27 @@ public sealed class LeaderSequenceTracker : IDisposable
     private readonly int _timeoutMs;
     private readonly int _leaderPressesNeeded;
     private readonly IReadOnlyDictionary<int, HotkeyEntry> _sequences;
-    private readonly IReadOnlyDictionary<int, HotkeyEntry> _directKeys;
+    private readonly IReadOnlyDictionary<int, (HotkeyEntry Entry, IReadOnlySet<int> RequiredMods)> _directKeys;
 
     public event Action<HotkeyEntry>? SequenceMatched;
     public event Action? LeaderActivated;
     public event Action? LeaderDeactivated;
 
-    public LeaderSequenceTracker(int leaderVk, int timeoutMs, IEnumerable<(int Vk, HotkeyEntry Entry)> sequences, int leaderCount = 1, IEnumerable<(int Vk, HotkeyEntry Entry)>? directKeys = null)
+    public LeaderSequenceTracker(int leaderVk, int timeoutMs, IEnumerable<(int Vk, HotkeyEntry Entry)> sequences, int leaderCount = 1, IEnumerable<(int Vk, HotkeyEntry Entry, IReadOnlySet<int> RequiredMods)>? directKeys = null)
     {
         _leaderVk = leaderVk;
         _timeoutMs = timeoutMs;
         _leaderPressesNeeded = Math.Max(1, leaderCount);
         _sequences = sequences.ToDictionary(x => x.Vk, x => x.Entry);
-        _directKeys = directKeys?.ToDictionary(x => x.Vk, x => x.Entry) ?? new Dictionary<int, HotkeyEntry>();
+        _directKeys = directKeys?.ToDictionary(x => x.Vk, x => (x.Entry, x.RequiredMods))
+            ?? new Dictionary<int, (HotkeyEntry, IReadOnlySet<int>)>();
+    }
+
+    // 後方互換: RequiredMods なし版（既存テスト・空のModsとして扱う）
+    public LeaderSequenceTracker(int leaderVk, int timeoutMs, IEnumerable<(int Vk, HotkeyEntry Entry)> sequences, int leaderCount, IEnumerable<(int Vk, HotkeyEntry Entry)> directKeys)
+        : this(leaderVk, timeoutMs, sequences, leaderCount,
+               directKeys.Select(d => (d.Vk, d.Entry, (IReadOnlySet<int>)new HashSet<int>())))
+    {
     }
 
     // 待機中に無視するModifierキー（Shift/Ctrl/Alt/Win）
@@ -40,16 +48,22 @@ public sealed class LeaderSequenceTracker : IDisposable
     ];
 
     /// <summary>キー押下を通知する。true を返した場合はそのキーを抑制する。</summary>
-    public bool OnKeyDown(int vkCode)
+    public bool OnKeyDown(int vkCode, IReadOnlySet<int>? heldModifiers = null)
     {
         lock (_lock)
         {
-            // Idle 状態でダイレクトキーが押されたら即マッチ
-            if (_state == State.Idle && _directKeys.TryGetValue(vkCode, out var directEntry))
+            // Idle 状態でダイレクトキーが押されたら即マッチ（修飾キー条件も確認）
+            if (_state == State.Idle && _directKeys.TryGetValue(vkCode, out var directInfo))
             {
-                Log.Information("ダイレクトキー {VkCode} → マッチ ({AppPath})", vkCode, directEntry.AppPath);
-                SequenceMatched?.Invoke(directEntry);
-                return true;
+                var (directEntry, requiredMods) = directInfo;
+                bool modsOk = requiredMods.Count == 0
+                    || (heldModifiers != null && requiredMods.IsSubsetOf(heldModifiers));
+                if (modsOk)
+                {
+                    Log.Information("ダイレクトキー {VkCode} → マッチ ({AppPath})", vkCode, directEntry.AppPath);
+                    SequenceMatched?.Invoke(directEntry);
+                    return true;
+                }
             }
 
             if ((_state == State.Idle || _state == State.PressingLeader) && vkCode == _leaderVk)
