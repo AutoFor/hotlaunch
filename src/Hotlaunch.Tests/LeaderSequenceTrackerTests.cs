@@ -144,7 +144,7 @@ public class LeaderSequenceTrackerTests
     public void ダイレクトキーはリーダーなしで即マッチする()
     {
         var directEntry = new HotkeyEntry { Key = "F12", AppPath = @"C:\Spotify.exe" };
-        var tracker = new LeaderSequenceTracker(AltVk, 2000, [(WVk, new HotkeyEntry())], directKeys: [(0x7B, directEntry)]);
+        var tracker = new LeaderSequenceTracker(AltVk, 2000, [(WVk, new HotkeyEntry())], directKeys: [(0x7B, directEntry, (IReadOnlySet<int>)new HashSet<int>())]);
         HotkeyEntry? fired = null;
         tracker.SequenceMatched += e => fired = e;
 
@@ -158,7 +158,7 @@ public class LeaderSequenceTrackerTests
     public void ダイレクトキーはリーダー待機中は発火しない()
     {
         var directEntry = new HotkeyEntry { Key = "F12", AppPath = @"C:\Spotify.exe" };
-        var tracker = new LeaderSequenceTracker(AltVk, 2000, [(WVk, new HotkeyEntry())], directKeys: [(0x7B, directEntry)]);
+        var tracker = new LeaderSequenceTracker(AltVk, 2000, [(WVk, new HotkeyEntry())], directKeys: [(0x7B, directEntry, (IReadOnlySet<int>)new HashSet<int>())]);
         HotkeyEntry? fired = null;
         tracker.SequenceMatched += e => fired = e;
 

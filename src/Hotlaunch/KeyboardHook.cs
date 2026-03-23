@@ -79,9 +79,19 @@ sealed class KeyboardHook : IDisposable
     private const uint WM_QUIT        = 0x0012;
     private const uint LLKHF_INJECTED = 0x10;
 
+    // 現在物理的に押されている修飾キーの VK コード集合
+    private static readonly HashSet<int> ModifierVkCodes =
+    [
+        0x10, 0xA0, 0xA1, // Shift, LShift, RShift
+        0x11, 0xA2, 0xA3, // Ctrl, LCtrl, RCtrl
+        0x12, 0xA4, 0xA5, // Alt, LAlt, RAlt
+        0x5B, 0x5C,        // LWin, RWin
+    ];
+
     private readonly LowLevelKeyboardProc _proc; // GC されないよう保持
     private readonly LeaderSequenceTracker _tracker;
     private readonly ModifierRemapper? _remapper;
+    private readonly HashSet<int> _heldModifiers = [];
     private IntPtr _hookId;
     private uint _hookThreadId;
     private long _lastEventTickMs;
@@ -151,6 +161,21 @@ sealed class KeyboardHook : IDisposable
 
         if (isInjected) return CallNextHookEx(_hookId, nCode, wParam, lParam);
 
+        // 修飾キーの押下/離放を追跡（左右バリアントを汎用コードに正規化）
+        if (ModifierVkCodes.Contains(vk))
+        {
+            int canonical = vk switch
+            {
+                0xA0 or 0xA1 => 0x10, // LShift/RShift → Shift
+                0xA2 or 0xA3 => 0x11, // LCtrl/RCtrl → Ctrl
+                0xA4 or 0xA5 => 0x12, // LAlt/RAlt → Alt
+                0x5C         => 0x5B, // RWin → LWin
+                _            => vk,
+            };
+            if (isDown) _heldModifiers.Add(canonical);
+            else if (isUp) _heldModifiers.Remove(canonical);
+        }
+
         if (_remapper != null)
         {
             var result = isDown ? _remapper.OnKeyDown(vk)
@@ -166,7 +191,7 @@ sealed class KeyboardHook : IDisposable
         if (isDown)
         {
             Log.Debug("キー押下: VK={VkCode} (0x{VkHex})", vk, vk.ToString("X2"));
-            if (_tracker.OnKeyDown(vk))
+            if (_tracker.OnKeyDown(vk, _heldModifiers))
                 return (IntPtr)1;
         }
 
