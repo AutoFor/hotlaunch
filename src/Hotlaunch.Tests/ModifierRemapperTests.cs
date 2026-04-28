@@ -186,6 +186,27 @@ public class ModifierRemapperTests
         Assert.Null(result.LeaderTriggerVk);
     }
 
+    [Fact]
+    public void チョード逆順後にコンボキーを押した場合ソースキーリリースでCtrl上が注入される()
+    {
+        // 再現シナリオ:
+        // 1. 変換↓（ペンディング）→ 2. 無変換↓（逆順チョード）→ 3. Cを押す（コンボ→Ctrl↓注入）
+        // 4. 無変換↑ → Ctrl↑が注入されなければCtrlが押しっぱなしになるバグ
+        var r = CreateWithChord();
+        r.OnKeyDown(HenkanVk);   // 変換↓: ペンディングトリガー
+        r.OnKeyDown(MuhenkanVk); // 無変換↓: 逆順チョード検出 → _usedAsChordSource に追加
+        r.OnKeyDown(CVk);        // C↓: コンボ分岐 → _usedAsModifier に追加 + Ctrl↓注入
+
+        r.OnKeyUp(CVk);
+        r.OnKeyUp(HenkanVk);
+        var result = r.OnKeyUp(MuhenkanVk); // 無変換↑: _usedAsChordSource と _usedAsModifier 両方をクリア
+
+        // Ctrl↑ が注入されなければ Ctrl が押しっぱなしになる
+        Assert.True(result.Block);
+        Assert.Single(result.Inject);
+        Assert.Equal((CtrlVk, true), result.Inject[0]); // Ctrl↑ が必ず注入される
+    }
+
 
     // Ctrl → Muhenkan マッピング用テスト
     private const int LCtrlVk = 0xA2; // VK_LCONTROL
