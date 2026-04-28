@@ -12,6 +12,8 @@ static class HotlaunchFactory
         // 修飾キー
         ["Alt"]    = 0x12, // VK_MENU
         ["Ctrl"]   = 0x11, // VK_CONTROL
+        ["LCtrl"]  = 0xA2, // VK_LCONTROL
+        ["RCtrl"]  = 0xA3, // VK_RCONTROL
         ["Shift"]  = 0x10, // VK_SHIFT
         ["Win"]    = 0x5B, // VK_LWIN
         ["Menu"]   = 0x12, // VK_MENU (Alt の別名)
@@ -81,7 +83,7 @@ static class HotlaunchFactory
 
         ModifierRemapper? remapper = (config.ModifierRemaps.Length > 0 || chordRules != null)
             ? new ModifierRemapper(
-                config.ModifierRemaps.Select(r => (ParseVk(r.Source), ParseVk(r.Target))),
+                config.ModifierRemaps.Select(r => (ParseVk(r.Source), ParseVk(r.Target), r.SoloKey is null ? (int?)null : ParseVk(r.SoloKey))),
                 chordRules)
             : null;
 
