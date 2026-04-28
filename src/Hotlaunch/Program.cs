@@ -21,7 +21,12 @@ static class Program
         bool verbose = args.Contains("--verbose") || args.Contains("-v");
         // --tail でリアルタイムログウィンドウを表示する。
         bool tail = args.Contains("--tail");
+#if DEBUG
+        // デバッグビルドは常に Debug レベル（チョード・修飾キー状態を追跡しやすくする）
+        var minLevel = LogEventLevel.Debug;
+#else
         var minLevel = verbose ? LogEventLevel.Debug : LogEventLevel.Information;
+#endif
 
         var logPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
