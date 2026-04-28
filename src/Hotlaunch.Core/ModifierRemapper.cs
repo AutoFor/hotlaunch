@@ -7,8 +7,9 @@ public readonly record struct RemapResult(bool Block, IReadOnlyList<(int Vk, boo
 public sealed class ModifierRemapper
 {
     private readonly record struct ChordRule(int SourceVk, int TriggerVk, int SyntheticVk);
+    private readonly record struct RemapRule(int TargetVk, int? SoloVk);
 
-    private readonly IReadOnlyDictionary<int, int> _rules;
+    private readonly IReadOnlyDictionary<int, RemapRule> _rules;
     private readonly IReadOnlyList<ChordRule> _chordRules;
     private readonly HashSet<int> _heldSources = new();
     private readonly HashSet<int> _usedAsModifier = new();
@@ -18,10 +19,10 @@ public sealed class ModifierRemapper
     private readonly HashSet<int> _pendingTriggers = new();
 
     public ModifierRemapper(
-        IEnumerable<(int sourceVk, int targetVk)> rules,
+        IEnumerable<(int sourceVk, int targetVk, int? soloVk)> rules,
         IEnumerable<(int sourceVk, int triggerVk, int syntheticVk)>? chords = null)
     {
-        _rules = rules.ToDictionary(r => r.sourceVk, r => r.targetVk);
+        _rules = rules.ToDictionary(r => r.sourceVk, r => new RemapRule(r.targetVk, r.soloVk));
         _chordRules = chords is null
             ? Array.Empty<ChordRule>()
             : chords.Select(c => new ChordRule(c.sourceVk, c.triggerVk, c.syntheticVk)).ToList();
@@ -105,7 +106,7 @@ public sealed class ModifierRemapper
             var inject = new List<(int, bool)>();
             foreach (var src in _heldSources)
                 if (_usedAsModifier.Add(src))
-                    inject.Add((_rules[src], false));
+                    inject.Add((_rules[src].TargetVk, false));
             inject.Add((vkCode, false));
             _heldNonSourceKeys.Add(vkCode);
             Log.Information("リマッパー: コンボ検出 0x{VkHex} → {Count}キー注入 [{Keys}]",
@@ -133,7 +134,7 @@ public sealed class ModifierRemapper
         }
 
         // ソースキーリリース
-        if (_rules.TryGetValue(vkCode, out int targetVk))
+        if (_rules.TryGetValue(vkCode, out var rule))
         {
             _heldSources.Remove(vkCode);
             if (_usedAsChordSource.Remove(vkCode))
@@ -145,13 +146,14 @@ public sealed class ModifierRemapper
             if (wasUsed)
             {
                 Log.Information("リマッパー: 0x{VkHex} リリース (修飾キーとして使用済み → 0x{TargetHex}↑注入)",
-                    vkCode.ToString("X2"), targetVk.ToString("X2"));
-                return new RemapResult(true, [(targetVk, true)]);
+                    vkCode.ToString("X2"), rule.TargetVk.ToString("X2"));
+                return new RemapResult(true, [(rule.TargetVk, true)]);
             }
             else
             {
-                Log.Information("リマッパー: 0x{VkHex} リリース (単独押し → 元キー注入)", vkCode.ToString("X2"));
-                return new RemapResult(true, [(vkCode, false), (vkCode, true)]);
+                int soloVk = rule.SoloVk ?? vkCode;
+                Log.Information("リマッパー: 0x{VkHex} リリース (単独押し → 0x{SoloHex}注入)", vkCode.ToString("X2"), soloVk.ToString("X2"));
+                return new RemapResult(true, [(soloVk, false), (soloVk, true)]);
             }
         }
         // コンボ中に押された非ソースキーのリリース → キーアップを注入（ソース先行リリース時も対応）
