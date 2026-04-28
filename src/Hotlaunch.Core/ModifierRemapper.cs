@@ -34,6 +34,9 @@ public sealed class ModifierRemapper
     public string StateDescription =>
         $"heldSources=[{string.Join(",", _heldSources.Select(v => $"0x{v:X2}"))}] " +
         $"usedAsModifier=[{string.Join(",", _usedAsModifier.Select(v => $"0x{v:X2}"))}] " +
+        $"usedAsChordSource=[{string.Join(",", _usedAsChordSource.Select(v => $"0x{v:X2}"))}] " +
+        $"heldChordTriggers=[{string.Join(",", _heldChordTriggers.Select(v => $"0x{v:X2}"))}] " +
+        $"pendingTriggers=[{string.Join(",", _pendingTriggers.Select(v => $"0x{v:X2}"))}] " +
         $"heldNonSourceKeys=[{string.Join(",", _heldNonSourceKeys.Select(v => $"0x{v:X2}"))}]";
 
     /// <summary>スタック状態をリセットする。無変換+C が効かなくなったときにトレイから呼ぶ。</summary>
@@ -50,6 +53,7 @@ public sealed class ModifierRemapper
 
     public RemapResult OnKeyDown(int vkCode)
     {
+        Log.Debug("リマッパー↓ VK=0x{VkHex} {State}", vkCode.ToString("X2"), StateDescription);
         // チョード検出（ソースキー保持中にトリガーキーが押された、かつソースはまだ修飾キーとして使っていない）
         foreach (var chord in _chordRules)
         {
@@ -112,7 +116,12 @@ public sealed class ModifierRemapper
             var inject = new List<(int, bool)>();
             foreach (var src in _heldSources)
                 if (_usedAsModifier.Add(src))
+                {
+                    if (_usedAsChordSource.Contains(src))
+                        Log.Warning("リマッパー: 0x{SrcHex} がチョードソース保持中にコンボ修飾として使用されました → リリース時に 0x{TargetHex}↑ を注入します",
+                            src.ToString("X2"), _rules[src].TargetVk.ToString("X2"));
                     inject.Add((_rules[src].TargetVk, false));
+                }
             inject.Add((vkCode, false));
             _heldNonSourceKeys.Add(vkCode);
             Log.Information("リマッパー: コンボ検出 0x{VkHex} → {Count}キー注入 [{Keys}]",
@@ -125,6 +134,7 @@ public sealed class ModifierRemapper
 
     public RemapResult OnKeyUp(int vkCode)
     {
+        Log.Debug("リマッパー↑ VK=0x{VkHex} {State}", vkCode.ToString("X2"), StateDescription);
         // ペンディングトリガーのリリース（ソースキーが来なかった）→ DOWN+UP を遅延注入
         if (_pendingTriggers.Remove(vkCode))
         {
@@ -145,6 +155,13 @@ public sealed class ModifierRemapper
             _heldSources.Remove(vkCode);
             if (_usedAsChordSource.Remove(vkCode))
             {
+                bool wasAlsoModifier = _usedAsModifier.Remove(vkCode);
+                if (wasAlsoModifier)
+                {
+                    Log.Information("リマッパー: 0x{VkHex} リリース (チョードソース+修飾キー両用 → 0x{TargetHex}↑注入)",
+                        vkCode.ToString("X2"), rule.TargetVk.ToString("X2"));
+                    return new RemapResult(true, [(rule.TargetVk, true)]);
+                }
                 Log.Information("リマッパー: 0x{VkHex} リリース (チョードソースとして使用済み → 抑制)", vkCode.ToString("X2"));
                 return new RemapResult(true, []);
             }

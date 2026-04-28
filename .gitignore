@@ -4,6 +4,7 @@ obj/
 
 # Publish output
 /tmp/
+publish/
 
 # User-specific files
 *.user

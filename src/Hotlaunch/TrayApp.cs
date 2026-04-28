@@ -30,6 +30,12 @@ sealed class TrayApp : IDisposable
         var resetItem = new MenuItem { Header = "リマッパーリセット (無変換+C が効かない時)" };
         resetItem.Click += (_, _) => _hook.ResetRemapper();
         contextMenu.Items.Add(resetItem);
+        var restartItem = new MenuItem { Header = "再起動" };
+        restartItem.Click += (_, _) => Restart(debug: false);
+        contextMenu.Items.Add(restartItem);
+        var debugRestartItem = new MenuItem { Header = "デバッグモードで再起動 (--tail --verbose)" };
+        debugRestartItem.Click += (_, _) => Restart(debug: true);
+        contextMenu.Items.Add(debugRestartItem);
         var exitItem = new MenuItem { Header = "終了" };
         exitItem.Click += (_, _) => Application.Current.Shutdown();
         contextMenu.Items.Add(exitItem);
@@ -54,6 +60,18 @@ sealed class TrayApp : IDisposable
             if (spotifyHandler.CanHandle(cmd))
                 spotifyHandler.Execute(cmd, isNewlyLaunched: false);
         };
+    }
+
+    private static void Restart(bool debug)
+    {
+        var exePath = Environment.ProcessPath ?? System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName;
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = exePath,
+            Arguments = debug ? "--tail --verbose" : "",
+            UseShellExecute = true,
+        });
+        Application.Current.Shutdown();
     }
 
     private static Icon CreateDotIcon(Color color)
