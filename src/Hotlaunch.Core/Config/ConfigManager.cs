@@ -43,7 +43,7 @@ public class ConfigManager(string configPath) : IConfigManager
             Leader = new LeaderConfig { Key = "F12", TimeoutMs = 2000, Count = 1 },
             ModifierRemaps =
             [
-                new ModifierRemapConfig { Source = "Muhenkan", Target = "Ctrl" },
+                new ModifierRemapConfig { Source = "LCtrl", Target = "LCtrl", SoloKey = "Muhenkan" },
             ],
             Hotkeys =
             [
