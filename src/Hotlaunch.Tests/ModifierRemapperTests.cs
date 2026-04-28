@@ -14,10 +14,10 @@ public class ModifierRemapperTests
     private const int SyntheticVk = 0xE8;
 
     private static ModifierRemapper Create()
-        => new ModifierRemapper([(MuhenkanVk, CtrlVk)]);
+        => new ModifierRemapper([(MuhenkanVk, CtrlVk, (int?)null)]);
 
     private static ModifierRemapper CreateWithChord()
-        => new ModifierRemapper([(MuhenkanVk, CtrlVk)], [(MuhenkanVk, HenkanVk, SyntheticVk)]);
+        => new ModifierRemapper([(MuhenkanVk, CtrlVk, (int?)null)], [(MuhenkanVk, HenkanVk, SyntheticVk)]);
 
     [Fact]
     public void ソースキー押下はブロックされ何も注入しない()
@@ -186,5 +186,51 @@ public class ModifierRemapperTests
         var result = r.OnKeyDown(HenkanVk); // この時点ではチョードにならない
 
         Assert.Null(result.LeaderTriggerVk);
+    }
+
+    // Ctrl → Muhenkan マッピング用テスト
+    private const int LCtrlVk = 0xA2; // VK_LCONTROL
+
+    private static ModifierRemapper CreateCtrlToMuhenkan()
+        => new ModifierRemapper([(LCtrlVk, LCtrlVk, MuhenkanVk)]);
+
+    [Fact]
+    public void Ctrl単独押しは無変換DOWN_UPが注入される()
+    {
+        var r = CreateCtrlToMuhenkan();
+        r.OnKeyDown(LCtrlVk);
+        var result = r.OnKeyUp(LCtrlVk);
+
+        Assert.True(result.Block);
+        Assert.Equal(2, result.Inject.Count);
+        Assert.Equal((MuhenkanVk, false), result.Inject[0]); // 無変換↓
+        Assert.Equal((MuhenkanVk, true),  result.Inject[1]); // 無変換↑
+    }
+
+    [Fact]
+    public void CtrlコンボはLCtrl注入される()
+    {
+        var r = CreateCtrlToMuhenkan();
+        r.OnKeyDown(LCtrlVk);
+        var result = r.OnKeyDown(CVk);
+
+        Assert.True(result.Block);
+        Assert.Equal(2, result.Inject.Count);
+        Assert.Equal((LCtrlVk, false), result.Inject[0]); // LCtrl↓
+        Assert.Equal((CVk, false), result.Inject[1]);
+    }
+
+    [Fact]
+    public void Ctrlコンボ後のCtrlリリースはLCtrl上が注入される()
+    {
+        var r = CreateCtrlToMuhenkan();
+        r.OnKeyDown(LCtrlVk);
+        r.OnKeyDown(CVk);
+        r.OnKeyUp(CVk);
+        var result = r.OnKeyUp(LCtrlVk);
+
+        Assert.True(result.Block);
+        Assert.Single(result.Inject);
+        Assert.Equal((LCtrlVk, true), result.Inject[0]); // LCtrl↑ のみ（無変換は注入しない）
     }
 }
