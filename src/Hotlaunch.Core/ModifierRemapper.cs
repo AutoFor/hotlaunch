@@ -93,10 +93,16 @@ public sealed class ModifierRemapper
             }
         }
 
-        // ソースキー押下 → 追跡開始（物理キーは素通し: 親指シフト等がそのまま受け取れる）
-        if (_rules.ContainsKey(vkCode))
+        // ソースキー押下 → 追跡開始
+        // SoloKey が設定されている場合は DOWN も抑制（さもないと UP を抑制した際に OS 側で押しっぱなしになる）
+        if (_rules.TryGetValue(vkCode, out var sourceRule))
         {
             _heldSources.Add(vkCode);
+            if (sourceRule.SoloVk.HasValue)
+            {
+                Log.Information("リマッパー: 0x{VkHex} 押下 → ソースキー追跡開始 (抑制)", vkCode.ToString("X2"));
+                return new RemapResult(true, []);
+            }
             Log.Information("リマッパー: 0x{VkHex} 押下 → ソースキー追跡開始 (素通し)", vkCode.ToString("X2"));
             return new RemapResult(false, []);
         }
