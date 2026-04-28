@@ -93,12 +93,12 @@ public sealed class ModifierRemapper
             }
         }
 
-        // ソースキー押下 → 追跡開始
+        // ソースキー押下 → 追跡開始（物理キーは素通し: 親指シフト等がそのまま受け取れる）
         if (_rules.ContainsKey(vkCode))
         {
             _heldSources.Add(vkCode);
-            Log.Information("リマッパー: 0x{VkHex} 押下 → ソースキー追跡開始", vkCode.ToString("X2"));
-            return new RemapResult(true, []);
+            Log.Information("リマッパー: 0x{VkHex} 押下 → ソースキー追跡開始 (素通し)", vkCode.ToString("X2"));
+            return new RemapResult(false, []);
         }
         // ソースキー保持中 → ターゲット+元キーを注入
         if (_heldSources.Count > 0)
@@ -145,15 +145,25 @@ public sealed class ModifierRemapper
             bool wasUsed = _usedAsModifier.Remove(vkCode);
             if (wasUsed)
             {
-                Log.Information("リマッパー: 0x{VkHex} リリース (修飾キーとして使用済み → 0x{TargetHex}↑注入)",
+                Log.Information("リマッパー: 0x{VkHex} リリース (修飾キーとして使用済み → 0x{TargetHex}↑注入, 物理↑素通し)",
                     vkCode.ToString("X2"), rule.TargetVk.ToString("X2"));
-                return new RemapResult(true, [(rule.TargetVk, true)]);
+                return new RemapResult(false, [(rule.TargetVk, true)]);
             }
             else
             {
                 int soloVk = rule.SoloVk ?? vkCode;
-                Log.Information("リマッパー: 0x{VkHex} リリース (単独押し → 0x{SoloHex}注入)", vkCode.ToString("X2"), soloVk.ToString("X2"));
-                return new RemapResult(true, [(soloVk, false), (soloVk, true)]);
+                // 単独押し: SoloKey を注入するか、元キーを素通しするか
+                if (soloVk != vkCode)
+                {
+                    Log.Information("リマッパー: 0x{VkHex} リリース (単独押し → 0x{SoloHex}注入)", vkCode.ToString("X2"), soloVk.ToString("X2"));
+                    return new RemapResult(true, [(soloVk, false), (soloVk, true)]);
+                }
+                else
+                {
+                    // 物理キーは OnKeyDown 時に素通し済みなので物理↑もそのまま通す
+                    Log.Information("リマッパー: 0x{VkHex} リリース (単独押し → 素通し)", vkCode.ToString("X2"));
+                    return new RemapResult(false, []);
+                }
             }
         }
         // コンボ中に押された非ソースキーのリリース → キーアップを注入（ソース先行リリース時も対応）
