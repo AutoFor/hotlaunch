@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using H.NotifyIcon;
 using Hotlaunch.Core;
 using Hotlaunch.Core.Config;
+using Serilog;
 
 namespace Hotlaunch;
 
