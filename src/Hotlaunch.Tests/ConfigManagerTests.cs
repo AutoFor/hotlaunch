@@ -67,6 +67,54 @@ public class ConfigManagerTests : IDisposable
         Assert.Equal("F12", config.Leader.Key);
     }
 
+    [Fact]
+    public void v0設定にModifierRemapsがない場合マイグレーションでLCtrlが追加される()
+    {
+        var path = Path.Combine(_tempDir, "config.json");
+        Directory.CreateDirectory(_tempDir);
+        // SchemaVersion なし・ModifierRemaps なしの旧設定
+        File.WriteAllText(path, """{"Leader":{"Key":"F12","TimeoutMs":2000,"Count":1},"Hotkeys":[],"DirectHotkeys":[]}""");
+
+        var manager = new ConfigManager(path);
+        var config = manager.Load();
+
+        Assert.Equal(1, config.SchemaVersion);
+        Assert.Single(config.ModifierRemaps);
+        Assert.Equal("LCtrl", config.ModifierRemaps[0].Source);
+        Assert.Equal("Muhenkan", config.ModifierRemaps[0].SoloKey);
+    }
+
+    [Fact]
+    public void v0設定にModifierRemapsがある場合マイグレーションで上書きしない()
+    {
+        var path = Path.Combine(_tempDir, "config.json");
+        Directory.CreateDirectory(_tempDir);
+        // すでにカスタムのリマップが存在する旧設定
+        File.WriteAllText(path, """{"Leader":{"Key":"F12","TimeoutMs":2000,"Count":1},"ModifierRemaps":[{"Source":"Muhenkan","Target":"Ctrl","SoloKey":null}],"Hotkeys":[],"DirectHotkeys":[]}""");
+
+        var manager = new ConfigManager(path);
+        var config = manager.Load();
+
+        Assert.Equal(1, config.SchemaVersion);
+        Assert.Single(config.ModifierRemaps);
+        Assert.Equal("Muhenkan", config.ModifierRemaps[0].Source); // 既存設定を保持
+    }
+
+    [Fact]
+    public void マイグレーション後にファイルが更新される()
+    {
+        var path = Path.Combine(_tempDir, "config.json");
+        Directory.CreateDirectory(_tempDir);
+        File.WriteAllText(path, """{"Leader":{"Key":"F12","TimeoutMs":2000,"Count":1},"Hotkeys":[],"DirectHotkeys":[]}""");
+
+        var manager = new ConfigManager(path);
+        manager.Load();
+
+        var savedJson = File.ReadAllText(path);
+        Assert.Contains("\"SchemaVersion\": 1", savedJson);
+        Assert.Contains("LCtrl", savedJson);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))
