@@ -24,6 +24,10 @@ sealed class TrayApp : IDisposable
     public TrayApp()
     {
         var config = ConfigManager.Default.Load();
+        Log.Information("設定読み込み: ModifierRemaps={RemapCount}, Hotkeys={HotkeyCount}, DirectHotkeys={DirectCount}",
+            config.ModifierRemaps.Length, config.Hotkeys.Length, config.DirectHotkeys.Length);
+        foreach (var remap in config.ModifierRemaps)
+            Log.Information("  リマップ: {Source} → {Target} (SoloKey={SoloKey})", remap.Source, remap.Target, remap.SoloKey ?? "なし");
         (_tracker, _, _hook) = HotlaunchFactory.Create(config);
 
         var contextMenu = new ContextMenu();

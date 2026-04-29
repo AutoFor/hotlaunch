@@ -27,6 +27,7 @@ public class ModifierRemapConfig
 
 public class AppConfig
 {
+    public int SchemaVersion { get; set; } = 0;
     public LeaderConfig Leader { get; set; } = new();
     public ModifierRemapConfig[] ModifierRemaps { get; set; } = [];
     public HotkeyEntry[] Hotkeys { get; set; } = [];
