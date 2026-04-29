@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Hotlaunch.Core.Config;
 using Xunit;
 
@@ -36,6 +35,7 @@ public class ConfigManagerTests : IDisposable
         var original = new AppConfig
         {
             Leader = new LeaderConfig { Key = "Alt", TimeoutMs = 1500 },
+            ModifierRemaps = [new ModifierRemapConfig { Source = "LCtrl", Target = "LCtrl", SoloKey = "Muhenkan" }],
             Hotkeys =
             [
                 new HotkeyEntry { Key = "T", AppPath = @"C:\term.exe", ProcessName = "term", Args = "--here" },
@@ -68,50 +68,61 @@ public class ConfigManagerTests : IDisposable
     }
 
     [Fact]
-    public void v0設定にModifierRemapsがない場合マイグレーションでLCtrlが追加される()
+    public void ModifierRemapsにLCtrlがない場合起動時に自動追加される()
     {
         var path = Path.Combine(_tempDir, "config.json");
         Directory.CreateDirectory(_tempDir);
-        // SchemaVersion なし・ModifierRemaps なしの旧設定
-        File.WriteAllText(path, """{"Leader":{"Key":"F12","TimeoutMs":2000,"Count":1},"Hotkeys":[],"DirectHotkeys":[]}""");
+        // LCtrl なしの既存設定
+        File.WriteAllText(path, """{"Leader":{"Key":"F12","TimeoutMs":2000,"Count":1},"ModifierRemaps":[],"Hotkeys":[],"DirectHotkeys":[]}""");
 
         var manager = new ConfigManager(path);
         var config = manager.Load();
 
-        Assert.Equal(1, config.SchemaVersion);
         Assert.Single(config.ModifierRemaps);
         Assert.Equal("LCtrl", config.ModifierRemaps[0].Source);
         Assert.Equal("Muhenkan", config.ModifierRemaps[0].SoloKey);
     }
 
     [Fact]
-    public void v0設定にModifierRemapsがある場合マイグレーションで上書きしない()
+    public void ModifierRemapsにMuhenkanだけある場合LCtrlが追加される()
     {
         var path = Path.Combine(_tempDir, "config.json");
         Directory.CreateDirectory(_tempDir);
-        // すでにカスタムのリマップが存在する旧設定
+        // 別のPCのケース: Muhenkan→Ctrl はあるが LCtrl がない
         File.WriteAllText(path, """{"Leader":{"Key":"F12","TimeoutMs":2000,"Count":1},"ModifierRemaps":[{"Source":"Muhenkan","Target":"Ctrl","SoloKey":null}],"Hotkeys":[],"DirectHotkeys":[]}""");
 
         var manager = new ConfigManager(path);
         var config = manager.Load();
 
-        Assert.Equal(1, config.SchemaVersion);
-        Assert.Single(config.ModifierRemaps);
-        Assert.Equal("Muhenkan", config.ModifierRemaps[0].Source); // 既存設定を保持
+        Assert.Equal(2, config.ModifierRemaps.Length);
+        Assert.Contains(config.ModifierRemaps, r => r.Source == "Muhenkan"); // 既存設定を保持
+        Assert.Contains(config.ModifierRemaps, r => r.Source == "LCtrl");   // デフォルトを追加
     }
 
     [Fact]
-    public void マイグレーション後にファイルが更新される()
+    public void ModifierRemapsにLCtrlが既にある場合重複追加しない()
     {
         var path = Path.Combine(_tempDir, "config.json");
         Directory.CreateDirectory(_tempDir);
-        File.WriteAllText(path, """{"Leader":{"Key":"F12","TimeoutMs":2000,"Count":1},"Hotkeys":[],"DirectHotkeys":[]}""");
+        File.WriteAllText(path, """{"Leader":{"Key":"F12","TimeoutMs":2000,"Count":1},"ModifierRemaps":[{"Source":"LCtrl","Target":"LCtrl","SoloKey":"Muhenkan"}],"Hotkeys":[],"DirectHotkeys":[]}""");
+
+        var manager = new ConfigManager(path);
+        var config = manager.Load();
+
+        Assert.Single(config.ModifierRemaps); // 重複しない
+    }
+
+    [Fact]
+    public void 不足エントリ追加後にファイルが保存される()
+    {
+        var path = Path.Combine(_tempDir, "config.json");
+        Directory.CreateDirectory(_tempDir);
+        File.WriteAllText(path, """{"Leader":{"Key":"F12","TimeoutMs":2000,"Count":1},"ModifierRemaps":[],"Hotkeys":[],"DirectHotkeys":[]}""");
 
         var manager = new ConfigManager(path);
         manager.Load();
 
         var savedJson = File.ReadAllText(path);
-        Assert.Contains("\"SchemaVersion\": 1", savedJson);
         Assert.Contains("LCtrl", savedJson);
     }
 

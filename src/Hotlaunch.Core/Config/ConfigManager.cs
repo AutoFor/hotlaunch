@@ -5,7 +5,11 @@ namespace Hotlaunch.Core.Config;
 
 public class ConfigManager(string configPath) : IConfigManager
 {
-    private const int CurrentSchemaVersion = 1;
+    // 毎起動時にこのリストと比較し、Source が存在しないエントリを自動追加する
+    private static readonly ModifierRemapConfig[] DefaultModifierRemaps =
+    [
+        new ModifierRemapConfig { Source = "LCtrl", Target = "LCtrl", SoloKey = "Muhenkan" },
+    ];
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -33,11 +37,8 @@ public class ConfigManager(string configPath) : IConfigManager
             return CreateDefault();
         }
 
-        if (config.SchemaVersion < CurrentSchemaVersion)
-        {
-            config = Migrate(config);
+        if (MergeMissingDefaults(config))
             Save(config);
-        }
 
         return config;
     }
@@ -48,38 +49,27 @@ public class ConfigManager(string configPath) : IConfigManager
         File.WriteAllText(configPath, JsonSerializer.Serialize(config, Options));
     }
 
-    private static AppConfig Migrate(AppConfig config)
+    private static bool MergeMissingDefaults(AppConfig config)
     {
-        int from = config.SchemaVersion;
-
-        // v0 → v1: LCtrl リマップがなければ追加
-        if (config.SchemaVersion < 1)
+        bool changed = false;
+        foreach (var def in DefaultModifierRemaps)
         {
-            if (config.ModifierRemaps.Length == 0)
-            {
-                config.ModifierRemaps =
-                [
-                    new ModifierRemapConfig { Source = "LCtrl", Target = "LCtrl", SoloKey = "Muhenkan" },
-                ];
-                Log.Information("設定マイグレーション v0→v1: LCtrl リマップを追加しました");
-            }
-            config.SchemaVersion = 1;
+            if (config.ModifierRemaps.Any(r => string.Equals(r.Source, def.Source, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            config.ModifierRemaps = [..config.ModifierRemaps, def];
+            Log.Information("設定: デフォルトのリマップを追加しました: {Source} → {Target} (SoloKey={SoloKey})",
+                def.Source, def.Target, def.SoloKey ?? "なし");
+            changed = true;
         }
-
-        Log.Information("設定マイグレーション完了: v{From} → v{To}", from, config.SchemaVersion);
-        return config;
+        return changed;
     }
 
     private AppConfig CreateDefault()
     {
         var config = new AppConfig
         {
-            SchemaVersion = CurrentSchemaVersion,
             Leader = new LeaderConfig { Key = "F12", TimeoutMs = 2000, Count = 1 },
-            ModifierRemaps =
-            [
-                new ModifierRemapConfig { Source = "LCtrl", Target = "LCtrl", SoloKey = "Muhenkan" },
-            ],
+            ModifierRemaps = DefaultModifierRemaps.ToArray(),
             Hotkeys =
             [
                 new HotkeyEntry
