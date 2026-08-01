@@ -1,0 +1,26 @@
+name: Add issue to org project
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions: {}
+
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add to All Issues (#6)
+        id: add
+        uses: actions/add-to-project@v1.0.2
+        with:
+          project-url: https://github.com/orgs/AutoFor/projects/6
+          github-token: ${{ secrets.PROJECT_SYNC_TOKEN }}
+      - name: Set Status to Backlog
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          ITEM_ID: ${{ steps.add.outputs.itemId }}
+        run: |
+          gh api graphql \
+            -f query='mutation($item:ID!){updateProjectV2ItemFieldValue(input:{projectId:"PVT_kwDOD7WBKM4BfC0y",itemId:$item,fieldId:"PVTSSF_lADOD7WBKM4BfC0yzhZYn9s",value:{singleSelectOptionId:"7e745b7c"}}){projectV2Item{id}}}' \
+            -f item="$ITEM_ID"
